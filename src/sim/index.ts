@@ -1,8 +1,10 @@
 // Simulation mode: Chuck Norris on the 2026 REBUILT field.
-//   Auto    — the team's autonomous: start against the left BUMP, intake up, facing the middle;
-//             drop the intake, sweep the neutral zone, come back and shoot, sweep again, shoot.
+//   Auto    — the team's autonomous: start in the left TRENCH lane, intake up, facing the middle;
+//             under the trench, drop the intake, sweep the neutral zone, back under the trench and
+//             shoot, then again. It never touches a BUMP.
 //   Endless — keeps finding fuel wherever it is (scored fuel pours out of the HUB into the
-//             neutral zone), collects it and scores it, forever.
+//             neutral zone), collects it and scores it, forever; each crossing picks the trench or
+//             the bump at random.
 // Field: AdvantageScope "2026 FRC Field" (scripts/optimize-field.mjs). Red alliance wall at −X.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -16,7 +18,15 @@ import { RobotSim, VMAX } from './robot';
 interface FieldData { fuelRadius: number; hubs: HubData[]; fuel: number[][]; grid: GridData }
 
 export type SimMode = 'auto' | 'endless';
-export type SimView = 'follow' | 'field' | 'driver';
+/** tv: broadcast camera that keeps the robot and where it is going in frame; follow: chase camera
+ *  behind the robot; field: the whole field from above; driver: the red driver station. */
+export type SimView = 'tv' | 'follow' | 'field' | 'driver';
+export const SIM_VIEWS: { id: SimView; label: string; title: string }[] = [
+  { id: 'tv', label: 'TV', title: 'Broadcast camera: the robot and where it is going' },
+  { id: 'follow', label: 'Chase', title: 'Behind the robot' },
+  { id: 'field', label: 'Field', title: 'The whole field' },
+  { id: 'driver', label: 'Driver', title: 'From the driver station' },
+];
 export interface SimStatus {
   mode: SimMode; phase: string; scored: number; stored: number; capacity: number;
   time: number | null; bps: number; ended: boolean; loading: boolean;
@@ -28,6 +38,13 @@ const AUTO_SECONDS = 20;
 const ALLIANCE_LINE = -4.24;       // red alliance zone is x < this
 const SHOOT_X = -4.45;             // robot center must be this deep to score
 const CLEAR = 0.5;                 // planning clearance (robot half-diagonal with margin)
+// Each alliance's BUMPs and TRENCHes sit on one line across the field (x = ±CROSS_X). A route
+// across it enters at CROSS_X ∓ CROSS_OUT and leaves on the other side.
+const CROSS_X = 3.62;
+const CROSS_OUT = 1.2;
+const BUMP_Z = 1.5;
+const FOV_SIM = 46;
+const USER_HOLD = 4;               // seconds the camera stays where the user put it
 
 export class Simulation {
   private group = new THREE.Group();
@@ -41,6 +58,16 @@ export class Simulation {
   private trails!: THREE.LineSegments;
   private trailPos = new Map<number, number[]>();
   private pulse!: THREE.Mesh;
+  private locator!: THREE.Mesh;
+  /** Trench lane center (|z|), measured from the field grid. */
+  trenchZ = 3.38;
+  private crossMemo = new Map<number, { kind: 'trench' | 'bump'; z: number; t: number; from: number }>();
+  private userT = 99;
+  private onUserStart = () => { this.userT = 0; this.userActive = true; };
+  private onUserEnd = () => { this.userActive = false; };
+  private userActive = false;
+  private camHeading = 0;
+  private camFocus = new THREE.Vector3();
   // the robot's "brain", visualized: planned path, the fuel it is hunting, turret aim lines
   private pathLine!: THREE.Line;
   private pathRef: unknown = null;
@@ -51,11 +78,12 @@ export class Simulation {
   private hook = (dt: number) => this.frame(dt);
   brain: AutoBrain | EndlessBrain | null = null;
   private saved: Record<string, unknown> | null = null;
+  private lod: Map<string, THREE.BufferGeometry> | null = null;
   private scoreTimes: number[] = [];
   private clock = 0;
   private statusClock = 0;
   mode: SimMode = 'auto';
-  view: SimView = 'follow';
+  view: SimView = 'tv';
   autoOrbit = false;
   active = false;
   paused = false;
@@ -66,11 +94,15 @@ export class Simulation {
   async start(mode: SimMode = 'auto') {
     const v = this.viewer;
     this.emitLoading();
-    const [gltf, data] = await Promise.all([
-      new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('field/field-2026.glb'),
+    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const [gltf, data, lodGltf] = await Promise.all([
+      loader.loadAsync('field/field-2026.glb'),
       fetch('field/field-2026.json').then((r) => r.json() as Promise<FieldData>),
+      loader.loadAsync('models/chuck-norris-sim.glb').catch(() => null),
     ]);
     this.data = data;
+    this.lod = new Map();
+    lodGltf?.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) this.lod!.set(m.name, m.geometry); });
     gltf.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
@@ -96,7 +128,7 @@ export class Simulation {
       this.scoreTimes.push(this.clock);
       sound.play('score');
     };
-    const geo = new THREE.SphereGeometry(R, 18, 14);
+    const geo = new THREE.SphereGeometry(R, 14, 10);
     const mat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(0.98, 0.66, 0.05), roughness: 0.62, sheen: 0.4, sheenColor: new THREE.Color(1, 0.85, 0.4) });
     this.inst = new THREE.InstancedMesh(geo, mat, this.balls.n);
     this.inst.castShadow = true;
@@ -118,6 +150,21 @@ export class Simulation {
     );
     this.pulse.position.set(red.center[0], red.center[1] + 0.02, red.center[2]);
     this.group.add(this.pulse);
+
+    // a soft alliance-red halo on the carpet so the robot is easy to find from far views
+    this.locator = new THREE.Mesh(
+      new THREE.RingGeometry(0.66, 0.8, 64).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xff3b4e, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    this.locator.renderOrder = 2;
+    this.group.add(this.locator);
+
+    // trench lane: the widest free gap between the side wall and the trench supports
+    let best = 0;
+    for (let z = 2.4; z < 4.05; z += 0.025) {
+      const d = Math.min(this.field.distAt(-CROSS_X, -z), this.field.distAt(-CROSS_X - 0.4, -z), this.field.distAt(-CROSS_X + 0.4, -z));
+      if (d > best) { best = d; this.trenchZ = z; }
+    }
 
     const holo = new THREE.Color(0x6fd3ff);
     this.pathLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: holo, dashSize: 0.18, gapSize: 0.1, transparent: true, opacity: 0.85, depthWrite: false }));
@@ -141,8 +188,11 @@ export class Simulation {
     this.saved = {
       maxDist: v.controls.maxDistance, minDist: v.controls.minDistance, maxPolar: v.controls.maxPolarAngle,
       keyPos: kl.position.clone(), shadow: [sc.left, sc.right, sc.top, sc.bottom, sc.far], rootPos: v.root.position.clone(),
-      dollyToCursor: v.controls.dollyToCursor,
+      dollyToCursor: v.controls.dollyToCursor, smoothTime: v.controls.smoothTime,
     };
+    v.setSimRendering(this.lod, FOV_SIM);
+    v.controls.addEventListener('controlstart', this.onUserStart);
+    v.controls.addEventListener('controlend', this.onUserEnd);
     v.setFocus(null);
     v.setExploded(false);
     for (const m of v.mechanisms.values()) v.setMechanism(m.id, m.def, false);
@@ -160,6 +210,7 @@ export class Simulation {
     v.controls.minDistance = 0.8;
     v.controls.maxPolarAngle = 86 * DEG;
     v.controls.dollyToCursor = false;
+    v.controls.smoothTime = 0.45;
     v.controls.setFocalOffset(0, 0, 0, false);
     v.stage.updateMatrixWorld(true);
 
@@ -182,9 +233,10 @@ export class Simulation {
     // preload: 8 fuel from the red outpost (staged outside the field)
     const pre: number[] = [];
     for (let i = 0; i < this.balls.n && pre.length < 8; i++) if (this.balls.st[i] === S.PARKED && this.balls.pos[i * 3] < -8) pre.push(i);
+    this.crossMemo.clear();
     if (mode === 'auto') {
       this.robot.setIntakeNow(false);
-      this.robot.place(ALLIANCE_LINE - 0.445 - 0.03, -1.52, Math.PI / 2);
+      this.robot.place(ALLIANCE_LINE - 0.445 - 0.03, -this.trenchZ, Math.PI / 2);
       this.brain = new AutoBrain(this);
     } else {
       this.robot.setIntakeNow(true);
@@ -192,7 +244,9 @@ export class Simulation {
       this.brain = new EndlessBrain(this);
     }
     this.robot.preload(pre);
+    this.robot.present();
     this.writeInstances();
+    this.userT = 99;
     this.setView(this.view, false);
     this.emit(true);
   }
@@ -203,10 +257,13 @@ export class Simulation {
     const v = this.viewer;
     if (!this.saved) return;
     v.hooks.delete(this.hook);
+    v.controls.removeEventListener('controlstart', this.onUserStart);
+    v.controls.removeEventListener('controlend', this.onUserEnd);
+    v.setSimRendering(null, null);
     v.scene.remove(this.group);
     v.grid.visible = true;
     v.simActive = false;
-    const s = this.saved as { maxDist: number; minDist: number; maxPolar: number; keyPos: THREE.Vector3; shadow: number[]; rootPos: THREE.Vector3; dollyToCursor: boolean };
+    const s = this.saved as { maxDist: number; minDist: number; maxPolar: number; keyPos: THREE.Vector3; shadow: number[]; rootPos: THREE.Vector3; dollyToCursor: boolean; smoothTime: number };
     v.root.position.copy(s.rootPos);
     v.stage.position.set(0, 0, 0);
     v.stage.quaternion.identity();
@@ -221,6 +278,7 @@ export class Simulation {
     v.controls.minDistance = s.minDist;
     v.controls.maxPolarAngle = s.maxPolar;
     v.controls.dollyToCursor = s.dollyToCursor;
+    v.controls.smoothTime = s.smoothTime;
     for (const m of v.mechanisms.values()) {
       m.angle.smoothTime = m.type === 'fourbar' ? 0.42 : 0.32;
       v.setMechanism(m.id, m.def, true);
@@ -232,19 +290,145 @@ export class Simulation {
 
   setView(view: SimView, animate = true) {
     this.view = view;
-    const c = this.viewer.controls, r = this.robot;
-    if (view === 'follow') {
-      c.moveTo(r.x, 0.35, r.z, animate);
-      c.dollyTo(5.6, animate);
-      c.rotateTo(r.th + Math.PI + 0.5, 46 * DEG, animate);
-    } else if (view === 'field') {
-      c.moveTo(-1.4, 0, 0, animate);
-      c.dollyTo(15.5, animate);
-      c.rotateTo(-Math.PI / 2 + 0.0001, 44 * DEG, animate);
+    this.userT = 99;
+    this.camHeading = this.robot.th;
+    this.camFocus.set(this.robot.x, 0, this.robot.z);
+    this.viewer.setFov(view === 'driver' ? 50 : view === 'field' ? 40 : FOV_SIM);
+    this.aimCamera(0, animate);
+  }
+
+  /** Where the robot is headed: a point ~2.5 m along its path, the fuel it is hunting, or the HUB. */
+  private interest(out: THREE.Vector3) {
+    const r = this.robot;
+    out.set(r.x, 0, r.z);
+    if (r.order && !r.done) {
+      let left = 2.5, px = r.x, pz = r.z;
+      for (const [x, z] of r.order.path) {
+        const d = Math.hypot(x - px, z - pz);
+        if (d >= left) { px += ((x - px) * left) / d; pz += ((z - pz) * left) / d; left = 0; break; }
+        left -= d; px = x; pz = z;
+      }
+      out.set(px, 0, pz);
+    } else if (r.shooting) out.set(this.hub.cx, 0.6, this.hub.cz);
+    return out;
+  }
+
+  /** Visible area (fraction of the screen) not covered by the HUD at the top and the controls at the bottom. */
+  private screenSafe() {
+    const h = this.viewer.viewSize.h || 1;
+    return { top: Math.min(0.2, 70 / h), bottom: Math.min(0.24, 96 / h) };
+  }
+
+  private aimCamera(dt: number, animate: boolean) {
+    const c = this.viewer.controls, r = this.robot, cam = this.viewer.camera;
+    const vfov = cam.fov * DEG, aspect = cam.aspect || 1.4;
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const safe = this.screenSafe();
+    // shift the aim so the subject sits in the middle of the uncovered part of the screen
+    const lift = (safe.bottom - safe.top) / 2;
+    const k = dt > 0 ? 1 - Math.exp(-dt * 2.2) : 1;
+    if (this.view === 'tv') {
+      // broadcast camera on the scoring-table side: keeps the robot and where it is going in frame
+      const want = this.interest(new THREE.Vector3());
+      this.camFocus.lerp(want, k);
+      const fx = r.x * 0.62 + this.camFocus.x * 0.38, fz = r.z * 0.62 + this.camFocus.z * 0.38;
+      const spread = Math.hypot(this.camFocus.x - r.x, this.camFocus.z - r.z);
+      const need = Math.max(2.6, spread * 1.25 + 1.6); // meters of field that must fit across
+      const dist = THREE.MathUtils.clamp(need / 2 / Math.tan(Math.min(hfov, vfov * 1.5) / 2), 5.5, 12);
+      const el = 38 * DEG;
+      const tx = fx, tz = fz + lift * dist * Math.tan(vfov / 2) * 0.9;
+      c.setLookAt(tx, Math.sin(el) * dist, tz - Math.cos(el) * dist, tx, 0.25, tz, animate);
+    } else if (this.view === 'follow') {
+      // chase camera behind the robot's direction of travel (or its heading when it is still)
+      const sp = Math.hypot(r.vx, r.vz);
+      const want = sp > 0.6 ? Math.atan2(r.vx, r.vz) : r.th;
+      let d = want - this.camHeading;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.camHeading += d * (dt > 0 ? 1 - Math.exp(-dt * 1.6) : 1);
+      const fx = Math.sin(this.camHeading), fz = Math.cos(this.camHeading);
+      const back = 3.3, up = 2.0;
+      c.setLookAt(r.x - fx * back, up, r.z - fz * back, r.x + fx * 1.6, 0.25, r.z + fz * 1.6, animate);
+    } else if (this.view === 'field') {
+      // the whole field, long side across the screen, sized to fit between the HUD bars
+      const el = 62 * DEG;
+      const usable = 1 - safe.top - safe.bottom;
+      const halfW = 8.45, halfD = 4.25;
+      const dW = halfW / Math.tan(hfov / 2);
+      const dD = (halfD * Math.sin(el) + 0.6) / (Math.tan(vfov / 2) * usable);
+      const dist = Math.max(dW, dD) * 1.04;
+      const tz = lift * dist * Math.tan(vfov / 2) * 1.6;
+      c.setLookAt(0, Math.sin(el) * dist, tz - Math.cos(el) * dist, 0, 0, tz, animate);
     } else {
-      // the red driver station: what the drive team actually sees
-      c.setLookAt(-9.4, 2.6, -2.9, -1.6, 0.2, 0.4, animate);
+      // the red driver station, looking at the robot
+      const want = new THREE.Vector3(r.x, 0.3, r.z);
+      this.camFocus.lerp(want, k);
+      const ez = THREE.MathUtils.clamp(this.camFocus.z * 0.35, -2.4, 2.4);
+      c.setLookAt(-9.7, 2.05, ez, this.camFocus.x * 0.85 - 1.0, 0.2, this.camFocus.z * 0.8, animate);
     }
+  }
+
+  // ------------------------------------------------------------------ routing
+  /**
+   * Plans to (gx, gz). When the trip crosses an alliance's BUMP/TRENCH line it goes through a trench
+   * lane or over a bump: `prefer` forces one, otherwise each crossing is chosen at random (and kept
+   * until the robot is across, so re-plans don't flip-flop).
+   */
+  route(gx: number, gz: number, prefer?: 'trench' | 'bump'): { path: [number, number][]; via: string; segHeading?: (number | null)[] } | null {
+    const r = this.robot, f = this.field;
+    const waypoints: [number, number][] = [];
+    let via = '';
+    for (const L of [-CROSS_X, CROSS_X]) {
+      if ((r.x - L) * (gx - L) >= 0) continue;
+      const dir = Math.sign(gx - L);
+      let memo = this.crossMemo.get(L);
+      if (!memo || prefer && memo.kind !== prefer) {
+        const kind = prefer ?? (Math.random() < 0.5 ? 'trench' : 'bump');
+        const lane = kind === 'trench' ? this.trenchZ : BUMP_Z;
+        // the lane on the side that makes the shorter trip
+        const cost = (z: number) => Math.abs(r.z - z) + Math.abs(gz - z);
+        const z = cost(lane) <= cost(-lane) ? lane : -lane;
+        memo = { kind, z, t: this.clock, from: Math.sign(r.x - L) };
+        this.crossMemo.set(L, memo);
+      }
+      // line up in the open first, so the deployed intake never swings into the trench supports
+      waypoints.push([L - dir * (CROSS_OUT + 0.55), memo.z], [L - dir * CROSS_OUT, memo.z], [L + dir * CROSS_OUT, memo.z]);
+      via = memo.kind === 'trench' ? 'under the trench' : 'over the bump';
+    }
+    if (!waypoints.length) {
+      const path = f.plan(r.x, r.z, gx, gz, CLEAR);
+      return path ? { path, via } : null;
+    }
+    const out: [number, number][] = [];
+    const segHeading: (number | null)[] = [];
+    let sx = r.x, sz = r.z;
+    for (let k = 0; k < waypoints.length; k += 3) {
+      const [pre, entry, exit] = [waypoints[k], waypoints[k + 1], waypoints[k + 2]];
+      const dir = Math.sign(exit[0] - pre[0]);
+      const lane = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      // already lined up in (or inside) the lane: carry on from here instead of going back
+      const inLane = Math.abs(sz - pre[1]) < 0.4 && (sx - pre[0]) * dir > -0.1;
+      if (inLane) {
+        if (!out.length) out.push([sx, sz]);
+        if ((sx - entry[0]) * dir < -0.05) { out.push(entry); segHeading.push(lane); }
+        out.push(exit); segHeading.push(lane);
+        [sx, sz] = exit;
+        continue;
+      }
+      const leg = f.plan(sx, sz, pre[0], pre[1], CLEAR, 50);
+      if (!leg) return null;
+      out.push(...(out.length ? leg.slice(1) : leg));
+      while (segHeading.length < out.length - 1) segHeading.push(null);
+      // line up with the lane on the approach (intake leading), then drive straight through
+      if (out.length >= 2) segHeading[out.length - 2] = lane;
+      out.push(entry, exit);
+      segHeading.push(lane, lane);
+      [sx, sz] = exit;
+    }
+    const last = f.plan(sx, sz, gx, gz, CLEAR, 50);
+    if (!last) return null;
+    out.push(...last.slice(1));
+    while (segHeading.length < out.length - 1) segHeading.push(null);
+    return { path: out, via, segHeading };
   }
 
   // ------------------------------------------------------------------ per frame
@@ -259,6 +443,14 @@ export class Simulation {
       this.brain?.update(STEP);
       this.robot.update(STEP);
       this.balls.step(STEP, this.robot);
+    }
+    this.robot.present();
+    this.locator.position.set(this.robot.x, this.field.floor(this.robot.x, this.robot.z) + 0.012, this.robot.z);
+    (this.locator.material as THREE.MeshBasicMaterial).opacity = 0.38 + 0.14 * Math.sin(this.clock * 3);
+    // a crossing choice lasts until the robot is through it
+    for (const [L, m] of this.crossMemo) {
+      const across = Math.sign(this.robot.x - L) !== m.from && Math.abs(this.robot.x - L) > CROSS_OUT + 0.3;
+      if (across || this.clock - m.t > 20) this.crossMemo.delete(L);
     }
     this.writeInstances();
     this.updateTrails();
@@ -309,18 +501,13 @@ export class Simulation {
     this.aimLines.visible = r.stored.length > 0;
   }
 
-  private lastRobot = new THREE.Vector3();
   private updateCamera(dt: number) {
-    const c = this.viewer.controls, r = this.robot;
-    if (this.view === 'follow') {
-      const t = new THREE.Vector3();
-      c.getTarget(t);
-      // glide with the robot; the user can still orbit and zoom
-      const k = 1 - Math.exp(-dt * 6);
-      c.moveTo(t.x + (r.x - t.x) * k, 0.35, t.z + (r.z - t.z) * k, false);
-      if (this.autoOrbit) c.rotate(dt * 0.18, 0, false);
-    } else if (this.view === 'field' && this.autoOrbit) c.rotate(dt * 0.05, 0, false);
-    this.lastRobot.set(r.x, 0, r.z);
+    // the user can orbit and zoom any time; the camera takes over again a few seconds later
+    if (this.userActive) { this.userT = 0; return; }
+    this.userT += dt;
+    if (this.userT < USER_HOLD) return;
+    if (this.autoOrbit && this.view === 'field') { this.viewer.controls.rotate(dt * 0.05, 0, false); return; }
+    this.aimCamera(dt, true);
   }
 
   private writeInstances() {
@@ -373,10 +560,14 @@ export class Simulation {
 
   private emit(force: boolean) {
     void force;
+    this.onStatus?.(this.status());
+  }
+
+  status(): SimStatus {
     const now = this.clock;
     this.scoreTimes = this.scoreTimes.filter((t) => now - t < 3);
     const brain = this.brain;
-    this.onStatus?.({
+    return {
       mode: this.mode,
       phase: brain?.phase ?? '',
       scored: this.balls.scored,
@@ -386,7 +577,7 @@ export class Simulation {
       bps: this.scoreTimes.length / 3,
       ended: brain instanceof AutoBrain && brain.ended,
       loading: false,
-    });
+    };
   }
 
   // ------------------------------------------------------------------ helpers for the brains
@@ -414,16 +605,21 @@ class AutoBrain {
   constructor(private sim: Simulation) {
     const start = sim.robot;
     const sx = start.x, sz = start.z;
-    // Scripted from the team's auto: left BUMP start, intake up, facing the middle.
+    // Scripted from the team's auto: start in the left TRENCH lane, intake up, facing the middle.
+    // Every crossing goes under the trench; it never touches a bump.
+    const tz = -sim.trenchZ;
+    const shootAt: [number, number] = [-5.75, tz + 0.85];
     this.steps = [
+      { kind: 'drive', label: 'Under the trench', path: [[sx, sz], [-2.45, tz]], speed: 3.4 },
       { kind: 'intake', down: true },
-      { kind: 'drive', label: 'Over the bump', path: [[sx, sz], [-3.65, -1.52], [-2.45, -1.55], [-1.5, -1.72]], speed: 3.2 },
-      { kind: 'drive', label: 'Sweeping the neutral zone', path: [[-1.5, -1.72], [1.0, -1.72], [1.45, -1.35], [1.0, -0.98], [-1.35, -0.98]], speed: 2.3 },
-      { kind: 'drive', label: 'Back to the HUB', path: [[-1.35, -0.98], [-2.5, -1.45], [-3.65, -1.52], [-4.9, -1.45], [-5.45, -1.05]], speed: 3.4, stop: true, shoot: true },
-      { kind: 'shoot', max: 3.2, label: 'Scoring' },
-      { kind: 'drive', label: 'Over the bump', path: [[-5.45, -1.05], [-4.8, -1.48], [-3.65, -1.52], [-2.45, -1.5], [-1.5, -0.35]], speed: 3.4, shoot: true },
-      { kind: 'drive', label: 'Second sweep', path: [[-1.5, -0.35], [1.0, -0.35], [1.42, 0.02], [1.0, 0.4], [-1.3, 0.4]], speed: 2.3 },
-      { kind: 'drive', label: 'Back to the HUB', path: [[-1.3, 0.4], [-2.4, -1.2], [-3.65, -1.52], [-4.9, -1.45], [-5.45, -1.05]], speed: 3.4, stop: true, shoot: true },
+      { kind: 'drive', label: 'Into the fuel', path: [[-2.45, tz], [-1.4, -2.35], [-1.0, -1.88]], speed: 2.6 },
+      { kind: 'drive', label: 'Sweeping the neutral zone', path: [[-1.0, -1.88], [1.0, -1.88]], speed: 1.25 },
+      { kind: 'drive', label: 'Back under the trench', path: [[1.0, -1.88], [1.3, -2.6], [0.6, tz + 0.1], [-2.45, tz], [-4.9, tz], shootAt], speed: 3.6, stop: true, shoot: true },
+      { kind: 'shoot', max: 3.5, label: 'Scoring' },
+      { kind: 'drive', label: 'Under the trench', path: [shootAt, [-4.9, tz], [-2.45, tz]], speed: 3.6, shoot: true, heading: Math.PI / 2 },
+      { kind: 'drive', label: 'Into the fuel', path: [[-2.45, tz], [-1.35, -2.35], [-1.0, -1.27]], speed: 2.6 },
+      { kind: 'drive', label: 'Second sweep', path: [[-1.0, -1.27], [1.0, -1.27]], speed: 1.25 },
+      { kind: 'drive', label: 'Back under the trench', path: [[1.0, -1.27], [1.35, -2.3], [0.6, tz + 0.1], [-2.45, tz], [-4.9, tz], shootAt], speed: 3.6, stop: true, shoot: true },
       { kind: 'shoot', max: 6, label: 'Scoring' },
     ];
     this.begin();
@@ -513,13 +709,17 @@ class EndlessBrain {
     let best: [number, number] | null = null, bestD = Infinity;
     for (let x = -7.0; x <= -4.7; x += 0.35) for (let z = -3.3; z <= 3.3; z += 0.35) {
       const dh = Math.hypot(x - h.cx, z - h.cz);
-      if (dh < 2.0 || dh > 4.0 || sim.grid.distAt(x, z) < 0.62) continue;
+      // room to turn with the intake out (half-diagonal 0.83 m)
+      if (dh < 2.0 || dh > 4.0 || sim.grid.distAt(x, z) < 0.86) continue;
       const d = Math.hypot(x - r.x, z - r.z) + Math.abs(z) * 0.15;
       if (d < bestD) { bestD = d; best = [x, z]; }
     }
     const goal = best ?? [-5.6, 0.9];
-    const path = sim.plan(goal[0], goal[1]);
-    if (path) r.drive({ path, speed: VMAX * 0.82, heading: 'travel', stopAtEnd: true });
+    const route = sim.route(goal[0], goal[1]);
+    if (route) {
+      r.drive({ path: route.path, speed: VMAX * 0.82, heading: 'travel', stopAtEnd: true, segHeading: route.segHeading });
+      if (route.via && !sim.canShoot()) this.phase = `To the HUB, ${route.via}`;
+    }
     this.replan = 6;
   }
 
@@ -576,13 +776,15 @@ class EndlessBrain {
       const ux = dx * c - dz * s, uz = dx * s + dz * c;
       const ax = bx - ux * 0.95, az = bz - uz * 0.95;
       if (g.distAt(ax, az) < CLEAR) continue;
-      const path = sim.plan(ax, az);
-      if (!path) continue;
+      const route = sim.route(ax, az);
+      if (!route) continue;
+      const path = route.path;
+      this.phase = route.via ? `Collecting fuel, ${route.via}` : 'Collecting fuel';
       // sweep through the fuel; stop short of walls
       let run = 0.25;
       while (run < 1.0 && g.lineFree(ax, az, bx + ux * (run + 0.1), bz + uz * (run + 0.1), 0.43)) run += 0.1;
       path.push([bx + ux * run, bz + uz * run]);
-      r.drive({ path, speed: 3.6, heading: 'travel', stopAtEnd: true });
+      r.drive({ path, speed: 3.6, heading: 'travel', stopAtEnd: true, segHeading: route.segHeading });
       this.sweeping = true;
       return;
     }
@@ -602,10 +804,15 @@ class EndlessBrain {
     if (moved > 0.15 || holding || r.shooting) { p.strikes = 0; return; }
     p.strikes++;
     if (this.target >= 0) this.blacklist.set(this.target, this.clock + 10);
-    if (p.strikes >= 3) {
-      // back away from whatever we're wedged against
-      const [ax, az] = this.sim.grid.awayFromWalls(r.x, r.z);
-      const bx = r.x + (ax || -Math.sin(r.th)) * 0.7, bz = r.z + (az || -Math.cos(r.th)) * 0.7;
+    if (p.strikes >= 2) {
+      // wedged: back out in whichever direction opens up the most room, keeping the heading
+      let best: [number, number] = [-Math.sin(r.th), -Math.cos(r.th)], bestC = -Infinity;
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
+        const c = Math.min(r.clearance(r.x + dx * 0.25, r.z + dz * 0.25, r.th), r.clearance(r.x + dx * 0.6, r.z + dz * 0.6, r.th));
+        if (c > bestC) { bestC = c; best = [dx, dz]; }
+      }
+      const bx = r.x + best[0] * 0.6, bz = r.z + best[1] * 0.6;
       r.drive({ path: [[r.x, r.z], [bx, bz]], speed: 1.5, heading: r.th, stopAtEnd: true });
       p.strikes = 0;
       return;

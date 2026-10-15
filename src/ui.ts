@@ -6,6 +6,14 @@ import type { SearchResult } from './parts';
 import { ACCENTS, type Settings } from './settings';
 import type { SimStatus, SimMode, SimView } from './sim/index';
 
+// (kept in sync with SIM_VIEWS in sim/index.ts, which loads lazily)
+const SIM_VIEWS: { id: SimView; label: string; title: string }[] = [
+  { id: 'tv', label: 'TV', title: 'Broadcast camera: the robot and where it is going' },
+  { id: 'follow', label: 'Chase', title: 'Behind the robot' },
+  { id: 'field', label: 'Field', title: 'The whole field' },
+  { id: 'driver', label: 'Driver', title: 'From the driver station' },
+];
+
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string) => {
   const el = document.createElement(tag);
@@ -39,7 +47,7 @@ export interface UiHandlers {
   onSettingsOpen(open: boolean): void;
   onSettingsRequest(): void;
   onResetSettings(): void;
-  onSimView(): void;
+  onSimView(view: SimView): void;
   onSimMode(mode: SimMode): void;
   onSimRestart(): void;
   onSimExit(): void;
@@ -205,7 +213,10 @@ export class UI {
           <button data-mode="auto" aria-pressed="true">Auto</button><button data-mode="endless" aria-pressed="false">Endless</button>
         </div>
         <div class="dock-sep"></div>
-        <button class="tool" data-act="view">${icon('scan-eye')}<span class="label">Follow</span></button>
+        <div class="seg sim-view" role="group" aria-label="Camera">
+          ${SIM_VIEWS.map((v) => `<button data-view="${v.id}" title="${v.title}" aria-pressed="${v.id === 'tv'}">${v.label}</button>`).join('')}
+        </div>
+        <div class="dock-sep"></div>
         <button class="tool" data-act="restart">${icon('rotate-ccw')}<span class="label">Restart</span></button>
         <button class="tool" data-act="exit">${icon('x')}<span class="label">Exit</span></button>
       </div>
@@ -217,7 +228,7 @@ export class UI {
           <button class="act primary" data-act="endless">${icon('play')}<span>Endless Mode</span></button>
         </div>
       </div>`;
-    this.simHud.querySelector('[data-act=view]')!.addEventListener('click', () => handlers.onSimView());
+    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-view button').forEach((b) => b.addEventListener('click', () => handlers.onSimView(b.dataset.view as SimView)));
     this.simHud.querySelector('[data-act=restart]')!.addEventListener('click', () => handlers.onSimRestart());
     this.simHud.querySelector('[data-act=exit]')!.addEventListener('click', () => handlers.onSimExit());
     this.simHud.querySelector('[data-act=replay]')!.addEventListener('click', () => handlers.onSimMode('auto'));
@@ -388,7 +399,7 @@ export class UI {
     timer.hidden = s.time === null;
     if (s.time !== null) timer.textContent = `0:${String(Math.ceil(s.time)).padStart(2, '0')}`;
     this.simHud.querySelectorAll<HTMLButtonElement>('.sim-mode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === s.mode)));
-    q('[data-act=view] .label').textContent = view === 'follow' ? 'Follow' : view === 'field' ? 'Field' : 'Driver';
+    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-view button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
     const res = q<HTMLElement>('.sim-result');
     res.hidden = !s.ended;
     if (s.ended) q('.sim-result-n').textContent = String(s.scored);

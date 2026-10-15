@@ -738,7 +738,10 @@ input[type='range']::-moz-range-thumb { width: 28px; height: 28px; border-radius
 .sim-cap { font-style: normal; color: var(--text-3); font-weight: 500; margin-right: 4px; }
 .sim-phase { min-width: 170px; }
 .sim-controls { align-items: center; }
-.sim-controls .seg { margin: 0; width: 200px; }
+.sim-controls .seg { margin: 0; width: 180px; }
+.sim-controls .seg.sim-view { width: 268px; }
+.app.portrait .sim-controls .seg { width: 140px; }
+.app.portrait .sim-controls .seg.sim-view { width: 216px; }
 .sim-controls .dock-sep { margin: 0 6px; }
 .sim-result {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);

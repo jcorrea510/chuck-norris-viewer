@@ -436,6 +436,42 @@ export class Viewer {
     this.shadowDirty = true;
   }
 
+  /**
+   * Simulation rendering: a low-detail robot (same nodes and part ids), a lower pixel-ratio cap and
+   * a smaller shadow map, so the field, 400+ fuel and per-frame shadows stay smooth on a laptop GPU.
+   * Pass null to restore the full-detail robot and the normal quality settings.
+   */
+  setSimRendering(lod: Map<string, THREE.BufferGeometry> | null, fov: number | null) {
+    for (const m of this.meshes) {
+      if (lod) {
+        const g = lod.get(m.name);
+        if (!g) continue;
+        m.userData.fullGeometry ??= m.geometry;
+        m.geometry = g;
+      } else if (m.userData.fullGeometry) {
+        m.geometry = m.userData.fullGeometry as THREE.BufferGeometry;
+        delete m.userData.fullGeometry;
+      }
+    }
+    if (!lod) {
+      this.camera.fov = FOV;
+      this.setQuality(this.quality);
+      return;
+    }
+    if (fov) this.camera.fov = fov;
+    const cap = this.quality === 'battery' ? 1 : this.quality === 'balanced' ? 1.25 : 2;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+    const ms = this.quality === 'max' ? 2048 : 1024;
+    if (this.keyLight.shadow.mapSize.x !== ms) {
+      this.keyLight.shadow.mapSize.set(ms, ms);
+      this.keyLight.shadow.map?.dispose();
+      this.keyLight.shadow.map = null;
+    }
+    this.resize(this.size.w, this.size.h);
+    this.shadowDirty = true;
+  }
+  setFov(fov: number) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); this.dirty = true; }
+
   // ---------------------------------------------------------------- framing
   private fitBox(box: THREE.Box3, azimuths: number[], polar: number, insets: Insets, pad = 1.06) {
     const { w, h } = this.size;

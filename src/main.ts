@@ -78,10 +78,11 @@ const ui = new UI({
   onSettingsOpen: (open) => { if (open) { touch(); sound.play('select'); } },
   onSettingsRequest: () => ui.openSettings(true, settings),
   onResetSettings: () => { applySettings(defaults(robot.secondsPerRevolution, robot.pitModeSeconds)); ui.renderSettings(settings); },
-  onSimView: () => {
+  onSimView: (view) => {
     const s = state.sim;
     if (!s) return;
-    s.setView(s.view === 'follow' ? 'field' : s.view === 'field' ? 'driver' : 'follow');
+    s.setView(view);
+    ui.simStatus(s.status(), view);
     sound.play('tap');
   },
   onSimMode: (mode: SimMode) => { state.sim?.setMode(mode); sound.play('select'); },
@@ -618,7 +619,7 @@ function enterPit() {
   if (!state.sim) {
     showAll();
     resetAll();
-  } else state.sim.setView('follow');
+  } else state.sim.setView('tv');
   ui.hoverTip(null);
   ui.setPit(true);
   state.interacted = false;

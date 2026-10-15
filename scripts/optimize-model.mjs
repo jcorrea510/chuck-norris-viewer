@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO, Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
-import { weld, simplifyPrimitive, meshopt, prune, dedup } from '@gltf-transform/functions';
+import { weld, simplifyPrimitive, compactPrimitive, meshopt, prune, dedup } from '@gltf-transform/functions';
 import draco3d from 'draco3dgltf';
 import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 
@@ -22,6 +22,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CAD_DIR = path.join(ROOT, 'cad');
 const OUT = path.join(ROOT, 'public', 'models', 'chuck-norris.glb');
 const OUT_PARTS = path.join(ROOT, 'public', 'models', 'chuck-norris.parts.json');
+// Low-detail copy for the simulation (same nodes and part ids, far fewer triangles): the robot is
+// small on screen there, and the field + fuel + shadows need the GPU budget on an M1 MacBook Air.
+const OUT_SIM = path.join(ROOT, 'public', 'models', 'chuck-norris-sim.glb');
+const SIM_ERRORS_M = [0.004, 0.007, 0.01];
+const SIM_TRI_BUDGET = 200_000;
 const CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'subsystems.json'), 'utf8'));
 const INSPECT = process.argv.includes('--inspect');
 
@@ -404,7 +409,11 @@ async function main() {
   }]));
 
   // ---- build output document
-  async function build(simplifyError) {
+  // Hardware (screws, nuts, rivets…) is left out of the simulation copy: invisible at field scale.
+  const hardwarePid = new Uint8Array(nParts);
+  for (let pid = 1; pid < nParts; pid++) if (HARDWARE.test(tree[partNode[pid]][0])) hardwarePid[pid] = 1;
+
+  async function build(simplifyError, sim = false) {
     const doc = new Document();
     const buffer = doc.createBuffer();
     const outScene = doc.createScene('Chuck Norris');
@@ -452,7 +461,20 @@ async function main() {
     root.setExtras({ generator: 'scripts/optimize-model.mjs', source: path.basename(input), units: 'meters', up: '+Y', parts: nParts - 1 });
 
     await doc.transform(weld());
-    if (simplifyError > 0) {
+    if (sim) {
+      for (const mesh of doc.getRoot().listMeshes()) for (const prim of mesh.listPrimitives()) {
+        const idx = prim.getIndices().getArray(), pidA = prim.getAttribute('_PARTID').getArray();
+        const pos = prim.getAttribute('POSITION').getArray();
+        const keep = [];
+        for (let t = 0; t < idx.length; t += 3) if (!hardwarePid[pidA[idx[t]]]) keep.push(idx[t], idx[t + 1], idx[t + 2]);
+        let out = new Uint32Array(keep);
+        // absolute error; Prune drops small disconnected pieces entirely
+        if (out.length) out = MeshoptSimplifier.simplify(out, pos instanceof Float32Array ? pos : new Float32Array(pos), 3, 0, simplifyError, ['ErrorAbsolute', 'Prune'])[0];
+        if (!out.length) out = new Uint32Array([0, 0, 0]); // keep every mesh so names still line up
+        prim.setIndices(doc.createAccessor().setType('SCALAR').setArray(new Uint32Array(out)).setBuffer(buffer));
+        compactPrimitive(prim);
+      }
+    } else if (simplifyError > 0) {
       for (const mesh of doc.getRoot().listMeshes()) for (const prim of mesh.listPrimitives()) {
         const a = prim.getAttribute('POSITION');
         const mn = a.getMin([]), mx = a.getMax([]);
@@ -483,6 +505,15 @@ async function main() {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, result.bytes);
 
+  let simResult;
+  for (const err of SIM_ERRORS_M) {
+    process.stdout.write(`\nSimulation copy (simplify error ${(err * 1000).toFixed(1)} mm)… `);
+    simResult = await build(err, true);
+    console.log(`${(simResult.bytes.byteLength / 1e6).toFixed(2)} MB, ${Math.round(simResult.tris).toLocaleString()} tris`);
+    if (simResult.tris <= SIM_TRI_BUDGET) break;
+  }
+  fs.writeFileSync(OUT_SIM, simResult.bytes);
+
   // ---- parts file: names are pooled to keep it small
   const names = [], nameIdx = new Map();
   const pool = (s) => { if (!nameIdx.has(s)) { nameIdx.set(s, names.length); names.push(s); } return nameIdx.get(s); };
@@ -499,6 +530,7 @@ async function main() {
   };
   fs.writeFileSync(OUT_PARTS, JSON.stringify(parts));
   console.log(`\nWrote ${path.relative(ROOT, OUT)}  ${mb.toFixed(2)} MB  ·  ${Math.round(result.tris).toLocaleString()} triangles  ·  ${result.drawCalls} meshes`);
+  console.log(`Wrote ${path.relative(ROOT, OUT_SIM)}  ${(simResult.bytes.byteLength / 1e6).toFixed(2)} MB  ·  ${Math.round(simResult.tris).toLocaleString()} triangles`);
   console.log(`Wrote ${path.relative(ROOT, OUT_PARTS)}  ${(fs.statSync(OUT_PARTS).size / 1e3).toFixed(0)} KB  ·  ${nParts - 1} parts  ·  ${tree.length} tree nodes`);
 }
 
