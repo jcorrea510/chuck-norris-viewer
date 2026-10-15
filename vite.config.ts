@@ -7,7 +7,7 @@ export default defineConfig({
   build: { target: 'es2022', chunkSizeWarningLimit: 1200 },
   plugins: [
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       injectRegister: false,
       includeAssets: ['icons/*.png', 'models/*', 'field/*'],
       manifest: {

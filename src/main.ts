@@ -789,8 +789,22 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ------------------------------------------------------------------ offline (PWA)
-registerSW({
+// A push to main only reaches open pages once the service worker sees it, so ask for updates on
+// a timer and whenever the app comes back to the foreground. A new version is applied by reloading,
+// but only once nobody has touched the screen for a few seconds, so a demo is never cut off.
+let applyUpdate: ((reload?: boolean) => Promise<void>) | null = null;
+const updateSW = registerSW({
   immediate: true,
+  onRegisteredSW(_url, reg) {
+    if (!reg) return;
+    const check = () => { if (navigator.onLine) void reg.update().catch(() => {}); };
+    setInterval(check, 60_000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  },
+  onNeedRefresh() {
+    applyUpdate = updateSW;
+    ui.toast('New version available', { ms: 8000, action: { label: 'Reload', fn: () => { void updateSW(true); setTimeout(() => location.reload(), 4000); } } });
+  },
   onOfflineReady() {
     try {
       if (localStorage.getItem('offline-note')) return;
@@ -799,6 +813,14 @@ registerSW({
     ui.toast('Ready offline');
   },
 });
+setInterval(() => {
+  if (applyUpdate && performance.now() - state.lastInteraction > 10_000) {
+    void applyUpdate(true);
+    applyUpdate = null;
+    // updateSW reloads once the new worker takes over; if this page was never controlled it won't, so reload anyway.
+    setTimeout(() => location.reload(), 4000);
+  }
+}, 1000);
 
 // ------------------------------------------------------------------ load + reveal
 (async () => {
