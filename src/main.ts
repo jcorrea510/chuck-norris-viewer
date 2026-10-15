@@ -1,5 +1,6 @@
 import './style.css';
 import { registerSW } from 'virtual:pwa-register';
+import * as THREE from 'three';
 import { Viewer, type Insets, type FrameSpec, type PickHit } from './viewer';
 import { UI, type MechView, type ItemView } from './ui';
 import { robot, subsystems, subsystemById, MODEL_URL, PARTS_URL } from './config';
@@ -7,7 +8,7 @@ import { kindLabel } from './parts';
 import { knownFor } from './knownparts';
 import { sound } from './sound';
 import { ACCENTS, defaults, loadSettings, saveSettings, isLight, type Settings } from './settings';
-import type { Simulation } from './sim';
+import type { Simulation, SimMode } from './sim/index';
 
 // ------------------------------------------------------------------ iPad Safari guards
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
@@ -40,11 +41,12 @@ const state = {
   autoSpin: true, // tests switch these two off
   idleReset: true,
   doubleTapMs: 260, // the time window for a double tap (tests on slow software rendering raise it)
+  pit: false,
   hiddenStack: [] as { pids: number[]; label: string }[],
   autoHidden: [] as number[],
 };
 
-let settings: Settings = loadSettings(defaults(robot.secondsPerRevolution, robot.idleResetSeconds));
+let settings: Settings = loadSettings(defaults(robot.secondsPerRevolution, robot.pitModeSeconds));
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const viewer = new Viewer(canvas);
@@ -74,8 +76,14 @@ const ui = new UI({
   onFullscreen: () => void toggleFullscreen(),
   onSettings: (patch) => applySettings({ ...settings, ...patch }),
   onSettingsOpen: (open) => { if (open) { touch(); sound.play('select'); } },
-  onResetSettings: () => { applySettings(defaults(robot.secondsPerRevolution, robot.idleResetSeconds)); ui.renderSettings(settings); },
-  onSimView: () => { state.sim?.setView(state.sim.view === 'follow' ? 'field' : 'follow'); sound.play('tap'); },
+  onResetSettings: () => { applySettings(defaults(robot.secondsPerRevolution, robot.pitModeSeconds)); ui.renderSettings(settings); },
+  onSimView: () => {
+    const s = state.sim;
+    if (!s) return;
+    s.setView(s.view === 'follow' ? 'field' : s.view === 'field' ? 'driver' : 'follow');
+    sound.play('tap');
+  },
+  onSimMode: (mode: SimMode) => { state.sim?.setMode(mode); sound.play('select'); },
   onSimRestart: () => state.sim?.restart(),
   onSimExit: () => exitSim(),
 });
@@ -347,7 +355,7 @@ function resetAll() {
 }
 
 // ------------------------------------------------------------------ simulation
-async function enterSim() {
+async function enterSim(mode: SimMode = 'auto') {
   if (!state.ready || state.sim) return;
   touch();
   if (ui.searchOpen) ui.openSearch(false);
@@ -357,11 +365,11 @@ async function enterSim() {
   ui.setSimMode(true);
   sound.play('focus');
   try {
-    const { Simulation } = await import('./sim');
+    const { Simulation } = await import('./sim/index');
     const sim = new Simulation(viewer);
     state.sim = sim;
     sim.onStatus = (s) => ui.simStatus(s, sim.view);
-    await sim.start();
+    await sim.start(mode);
   } catch (err) {
     console.error(err);
     ui.toast('The field could not be loaded.', { icon: 'x' });
@@ -376,46 +384,85 @@ function exitSim() {
   viewer.frameOverview(insets(), true, true);
 }
 
-// ------------------------------------------------------------------ canvas taps vs drags
-const TAP_MOVE = 8, TAP_MS = 300;
+// ------------------------------------------------------------------ canvas: taps, double-taps, hover, mechanism drags
+const TAP_MOVE = 8, TAP_MS = 300, HOLD_MS = 280;
 const pointers = new Map<number, { x: number; y: number }>();
 let tapCandidate: { id: number; x: number; y: number; t: number; hit: Hit } | null = null;
 let pendingTap: { timer: number; x: number; y: number; hit: Hit } | null = null;
+let holdTimer = 0;
+let mechDrag: { id: string; pointerId: number; start: number; startAngle: number; startY: number; mode: 'plane' | 'screen'; sign: number } | null = null;
 
-function highlightFor(hit: Hit) {
+type TapTarget = { kind: 'node'; node: number; label: string } | { kind: 'sub'; id: string; label: string };
+
+/** What a tap on this hit would select. Hover previews use the same answer, so they never lie. */
+function tapTarget(hit: Hit): TapTarget | null {
+  const P = viewer.parts;
+  if (!hit) return null;
+  if (!P || !hit.pid) return hit.sub ? { kind: 'sub', id: hit.sub, label: subsystemById.get(hit.sub)?.name ?? '' } : null;
+  const sel = state.sel;
+  if (sel?.kind === 'node' && sel.nodes.length === 1 && P.partsOf(sel.nodes[0]).includes(hit.pid)) {
+    const up = P.up(sel.nodes[0]);
+    if (up > 0) return { kind: 'node', node: up, label: P.name(up) };
+    const s = P.subsystemOf(sel.nodes[0]);
+    return s ? { kind: 'sub', id: s, label: subsystemById.get(s)?.name ?? s } : null;
+  }
+  const node = P.meaningful(hit.pid);
+  return { kind: 'node', node, label: P.name(node) };
+}
+function targetPids(t: TapTarget | null): number[] | null {
+  if (!t) return null;
+  if (t.kind === 'sub') return viewer.subsystemPids(t.id);
+  return Array.from(viewer.parts!.partsOf(t.node));
+}
+/** The mechanism a part rides on (turrets, intake four-bar, brain pan), if any. */
+function mechanismOfHit(hit: Hit): string | null {
   const P = viewer.parts;
   if (!hit || !P || !hit.pid) return null;
-  return Array.from(P.partsOf(P.meaningful(hit.pid)));
+  return P.mechanismOf(P.nodeOfPart(hit.pid));
 }
 
 canvas.addEventListener('pointerdown', (e) => {
   touch();
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  ui.hoverTip(null);
   if (state.sim) return;
   if (pointers.size === 1 && e.button === 0) {
     const hit = state.ready ? viewer.pick(e.clientX, e.clientY) : null;
     tapCandidate = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), hit };
-    viewer.setHighlight(highlightFor(hit)); // instant touch-down feedback
-  } else cancelTap();
+    viewer.setHighlight(targetPids(tapTarget(hit))); // instant touch-down feedback
+    const mech = mechanismOfHit(hit);
+    if (mech) {
+      // press and hold a turret, the intake or the brain pan, then drag to move it
+      clearTimeout(holdTimer);
+      holdTimer = window.setTimeout(() => {
+        if (!tapCandidate || tapCandidate.id !== e.pointerId) return;
+        startMechDrag(mech, e.pointerId, tapCandidate.x, tapCandidate.y);
+      }, HOLD_MS);
+    }
+  } else { cancelTap(); endMechDrag(); }
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (mechDrag && e.pointerId === mechDrag.pointerId) { dragMech(e.clientX, e.clientY); return; }
   if (tapCandidate && e.pointerId === tapCandidate.id && Math.hypot(e.clientX - tapCandidate.x, e.clientY - tapCandidate.y) > TAP_MOVE) {
     cancelTap();
     if (!state.interacted) { state.interacted = true; ui.showHint(false); }
   }
   if (pointers.size) state.lastInteraction = performance.now();
+  else if (e.pointerType === 'mouse') queueHover(e.clientX, e.clientY);
 });
 const endPointer = (e: PointerEvent) => {
   pointers.delete(e.pointerId);
+  if (mechDrag && e.pointerId === mechDrag.pointerId) { endMechDrag(); return; }
   if (!tapCandidate || e.pointerId !== tapCandidate.id) return;
   const c = tapCandidate;
   cancelTap();
   if (e.type !== 'pointerup' || performance.now() - c.t > TAP_MS) return;
   if (pendingTap && Math.hypot(c.x - pendingTap.x, c.y - pendingTap.y) < 36) {
-    clearTimeout(pendingTap.timer); // double tap: hide what's under the finger
+    clearTimeout(pendingTap.timer);
     const hit = pendingTap.hit ?? c.hit;
     pendingTap = null;
-    if (hit) doubleTap(hit);
+    if (hit) doubleTap(hit);           // double-tap a part: hide it
+    else if (state.sel) overview();     // double-tap empty space: clear the selection
     return;
   }
   const hit = c.hit;
@@ -423,18 +470,104 @@ const endPointer = (e: PointerEvent) => {
 };
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
-canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') endPointer(e); });
-function cancelTap() { tapCandidate = null; viewer.setHighlight(null); }
+canvas.addEventListener('pointerleave', (e) => {
+  if (e.pointerType === 'mouse') { endPointer(e); ui.hoverTip(null); if (!pointers.size) viewer.setHighlight(null); canvas.style.cursor = ''; }
+});
+function cancelTap() { tapCandidate = null; clearTimeout(holdTimer); if (!mechDrag) viewer.setHighlight(null); }
 ui.layer.addEventListener('pointerdown', () => touch());
 
+// ---- hover preview (mouse / trackpad): highlight exactly what a click would select
+let hoverQueued: { x: number; y: number } | null = null;
+let hoverKey = '';
+function queueHover(x: number, y: number) {
+  if (!state.ready || state.sim || !viewer.pickingReady) return;
+  const first = !hoverQueued;
+  hoverQueued = { x, y };
+  if (first) requestAnimationFrame(() => {
+    const q = hoverQueued!;
+    hoverQueued = null;
+    if (pointers.size || mechDrag) return;
+    const hit = viewer.pick(q.x, q.y);
+    const t = tapTarget(hit);
+    const key = t ? (t.kind === 'sub' ? 's' + t.id : 'n' + t.node) : '';
+    if (key !== hoverKey) { hoverKey = key; viewer.setHighlight(targetPids(t)); }
+    const mech = mechanismOfHit(hit);
+    canvas.style.cursor = t ? (mech ? 'grab' : 'pointer') : '';
+    if (!t) { ui.hoverTip(null); return; }
+    const P = viewer.parts;
+    const kind = t.kind === 'sub' ? 'Subsystem' : P ? kindLabel(P, t.node) : '';
+    ui.hoverTip({ x: q.x, y: q.y, title: t.label, sub: kind, hint: mech ? `Hold to move ${viewer.mechanisms.get(mech)?.name ?? ''}` : null });
+  });
+}
+
+// ---- mechanism dragging
+const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
+const ray = new THREE.Raycaster();
+function pointerAngle(id: string, x: number, y: number): { angle: number; ok: boolean } {
+  const m = viewer.mechanisms.get(id)!;
+  const pivot = m.node.getWorldPosition(tmpV);
+  const axis = tmpV2.copy(m.axis).applyQuaternion(m.node.parent!.getWorldQuaternion(tmpQ)).normalize();
+  const r = canvas.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), viewer.camera);
+  const facing = Math.abs(ray.ray.direction.dot(axis));
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(axis, pivot);
+  const p = ray.ray.intersectPlane(plane, new THREE.Vector3());
+  if (!p || facing < 0.22) return { angle: 0, ok: false };
+  const v = p.sub(pivot);
+  const ref = Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  ref.sub(axis.clone().multiplyScalar(ref.dot(axis))).normalize();
+  const ref2 = new THREE.Vector3().crossVectors(axis, ref);
+  return { angle: Math.atan2(v.dot(ref2), v.dot(ref)) / DEG, ok: true };
+}
+function startMechDrag(id: string, pointerId: number, x: number, y: number) {
+  const pa = pointerAngle(id, x, y);
+  mechDrag = { id, pointerId, start: pa.angle, startAngle: viewer.mechanismAngle(id), startY: y, mode: pa.ok ? 'plane' : 'screen', sign: 1 };
+  tapCandidate = null;
+  viewer.controls.enabled = false;
+  viewer.setHighlight(viewer.parts?.partsOfMechanism(id) ?? null);
+  canvas.style.cursor = 'grabbing';
+  ui.hoverTip(null);
+  sound.play('select');
+  if (navigator.vibrate) navigator.vibrate(8);
+  dragMech(x, y);
+}
+function dragMech(x: number, y: number) {
+  if (!mechDrag) return;
+  const m = viewer.mechanisms.get(mechDrag.id)!;
+  let deg: number;
+  if (mechDrag.mode === 'plane') {
+    const pa = pointerAngle(mechDrag.id, x, y);
+    if (!pa.ok) { mechDrag.mode = 'screen'; mechDrag.startY = y; mechDrag.startAngle = viewer.mechanismAngle(mechDrag.id); return; }
+    let d = pa.angle - mechDrag.start;
+    d = ((d + 540) % 360) - 180;
+    deg = mechDrag.startAngle + d;
+  } else {
+    deg = mechDrag.startAngle + (y - mechDrag.startY) * 0.45; // drag up raises the intake / closes the pan
+  }
+  deg = Math.max(m.min, Math.min(m.max, deg));
+  viewer.dragMechanism(mechDrag.id, deg);
+  ui.hoverTip({ x, y, title: `${m.name}  ${Math.round(deg)}°`, sub: 'Release to drop', hint: null });
+}
+function endMechDrag() {
+  if (!mechDrag) return;
+  const id = mechDrag.id;
+  mechDrag = null;
+  viewer.endDragMechanism(id);
+  viewer.controls.enabled = true;
+  viewer.setHighlight(null);
+  canvas.style.cursor = '';
+  ui.hoverTip(null);
+  const m = viewer.mechanisms.get(id);
+  if (m?.liftRobot) setMechanism(id, viewer.mechanismAngle(id) < m.min / 2 ? m.min : 0, true);
+  else sound.play('toggle');
+}
+
 function singleTap(hit: Hit) {
-  const P = viewer.parts;
   if (!hit) { if (state.sel) goBack(); return; }
-  if (!P || !hit.pid) { if (hit.sub) selectSubsystem(hit.sub); return; }
-  const sel = state.sel;
-  // tapping inside the current selection climbs one level (part → assembly → subsystem)
-  if (sel?.kind === 'node' && sel.nodes.length === 1 && P.partsOf(sel.nodes[0]).includes(hit.pid)) return goUp();
-  selectNodes([P.meaningful(hit.pid)]);
+  const t = tapTarget(hit);
+  if (!t) return;
+  if (t.kind === 'sub') selectSubsystem(t.id, state.sel ? { azimuth: 'keep', polar: 'keep' } : undefined);
+  else selectNodes([t.node]);
 }
 
 function doubleTap(hit: PickHit) {
@@ -461,21 +594,45 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'h' || e.key === 'H') hideSelection();
 });
 
-// ------------------------------------------------------------------ auto-spin + idle reset
-setInterval(() => {
-  if (!state.ready || viewer.revealing || state.sim) return;
-  const idle = (performance.now() - state.lastInteraction) / 1000;
-  const anyChange = !!state.sel || state.exploded || viewer.hiddenCount() > 0 || viewer.lifted || ui.trayOpen ||
-    [...viewer.mechanisms.values()].some((m) => Math.abs(viewer.mechanismAngle(m.id) - m.def) > 0.5);
-  if (state.idleReset && settings.idleReset > 0 && idle > settings.idleReset && anyChange && !ui.settingsOpen) {
+// ------------------------------------------------------------------ pit display + auto-spin
+// After a few seconds with no input, every control fades away and the robot turns slowly, like a
+// pit display. The first touch only wakes the interface (it never selects anything by accident).
+function enterPit() {
+  state.pit = true;
+  if (ui.settingsOpen) ui.openSettings(false);
+  if (ui.searchOpen) ui.openSearch(false);
+  if (!state.sim) {
     showAll();
     resetAll();
-    state.lastInteraction = performance.now() - settings.spinSeconds * 1000;
-    state.interacted = false;
-    ui.showHint(true);
-    return;
-  }
-  const spin = state.autoSpin && settings.autoSpin && !state.sel && pointers.size === 0 && idle > robot.autoSpinResumeSeconds && !viewer.reducedMotion && !viewer.lifted;
+  } else state.sim.setView('follow');
+  ui.hoverTip(null);
+  ui.setPit(true);
+  state.interacted = false;
+}
+function exitPit() {
+  if (!state.pit) return;
+  state.pit = false;
+  ui.setPit(false);
+  if (!state.sim) ui.showHint(true);
+}
+const wake = (e: Event) => {
+  if (!state.pit) return;
+  exitPit();
+  touch();
+  e.stopPropagation();
+  if (e.cancelable) e.preventDefault();
+};
+window.addEventListener('pointerdown', wake, { capture: true });
+window.addEventListener('keydown', wake, { capture: true });
+window.addEventListener('wheel', wake, { capture: true, passive: false });
+
+setInterval(() => {
+  if (!state.ready || viewer.revealing) return;
+  const idle = (performance.now() - state.lastInteraction) / 1000;
+  if (state.idleReset && settings.pitMode > 0 && idle > settings.pitMode && !state.pit && !pointers.size && !mechDrag) enterPit();
+  if (state.sim) { state.sim.autoOrbit = state.pit; return; }
+  const spin = state.autoSpin && settings.autoSpin && !state.sel && pointers.size === 0 && !viewer.lifted && !viewer.reducedMotion &&
+    (state.pit || idle > robot.autoSpinResumeSeconds);
   if (spin !== viewer.spinning) viewer.spinning = spin;
 }, 250);
 

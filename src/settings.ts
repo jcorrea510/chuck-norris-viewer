@@ -11,7 +11,7 @@ export interface Settings {
   autoSpin: boolean;
   spinSeconds: number;     // seconds per revolution
   labels: boolean;
-  idleReset: number;       // seconds, 0 = off
+  pitMode: number;         // seconds of no input before the pit display, 0 = off
   quality: 'battery' | 'balanced' | 'max';
   stats: boolean;
 }
@@ -23,12 +23,12 @@ export const ACCENTS: Record<Accent, { fill: string; ink: string; name: string }
   gold: { fill: '#9a6a12', ink: '#f2c56b', name: 'Gold' },
 };
 
-const KEY = 'chuck-norris-settings-v1';
+const KEY = 'chuck-norris-settings-v2';
 
 export function defaults(robotSpin: number, robotIdle: number): Settings {
   return {
     appearance: 'dark', accent: 'maroon', hologram: 1, sound: true, volume: 0.6,
-    autoSpin: true, spinSeconds: robotSpin, labels: true, idleReset: robotIdle,
+    autoSpin: true, spinSeconds: robotSpin, labels: true, pitMode: robotIdle,
     quality: 'balanced', stats: false,
   };
 }

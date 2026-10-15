@@ -34,7 +34,7 @@ async function open(size, opts = {}) {
   if (opts.light) await page.addInitScript(() => localStorage.setItem('chuck-norris-settings-v1', JSON.stringify({ appearance: 'light' })));
   await page.goto(URL + (opts.query ?? ''));
   await page.waitForFunction(() => window.__viewer?.state.ready, null, { timeout: 120000 });
-  await page.evaluate(() => { const s = window.__viewer.state; s.autoSpin = false; s.idleReset = false; s.doubleTapMs = 6000; window.__viewer.viewer.spinning = false; });
+  await page.evaluate(() => { const s = window.__viewer.state; s.autoSpin = false; s.idleReset = false; window.__viewer.viewer.spinning = false; });
   await settle(page);
   return { ctx, page, errors };
 }
@@ -111,17 +111,18 @@ for (const size of SIZES) {
     await settle(page);
     const s2 = await page.evaluate(() => window.__viewer.state.sel);
     check(s2 && JSON.stringify(s2) !== JSON.stringify(s1), `tapping again selects the parent (${s2?.label ?? s2?.id})`);
-    await tapEl(page, '.panel .back');
-    await tapEl(page, '.dock .tool:first-child');
-    await settle(page);
+    await page.waitForTimeout(600);
+    await page.evaluate(() => window.__viewer.api.overview());
+    await settle(page, 800);
     hit = await findHit(page);
-    const before = await page.evaluate(() => window.__viewer.viewer.hiddenCount());
+    const before = await page.evaluate(() => { window.__viewer.state.doubleTapMs = 6000; return window.__viewer.viewer.hiddenCount(); });
     await page.touchscreen.tap(hit.x, hit.y);
     await page.waitForTimeout(90);
     await page.touchscreen.tap(hit.x, hit.y);
     await page.waitForTimeout(500);
     await settle(page);
     const after = await page.evaluate(() => window.__viewer.viewer.hiddenCount());
+    await page.evaluate(() => { window.__viewer.state.doubleTapMs = 260; });
     check(after > before, `double-tap hides a part (${after - before} part(s))`);
     await shot(page, size, '04-hidden');
     await tapEl(page, '.pill [data-act=all]');

@@ -22,7 +22,8 @@ export interface RobotConfig {
   team: string;
   season?: string;
   front: string;
-  idleResetSeconds: number;
+  /** Seconds of no input before the pit display takes over (UI hides, robot turns). */
+  pitModeSeconds: number;
   autoSpinResumeSeconds: number;
   secondsPerRevolution: number;
   exclude?: string[];

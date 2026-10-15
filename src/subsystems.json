@@ -5,14 +5,14 @@
     "robot.front: which way the robot faces at the start. \"auto\" points the intake at the viewer; or use +x, -x, +z, -z.",
     "match: words from Onshape sub-assembly or part names. Parts that match nothing go to Frame & Structure.",
     "hideWhenFocused: parts hidden while that subsystem is selected (e.g. panels that block the view).",
-    "mechanisms: moving parts. pivot/region numbers are CAD coordinates in meters. After changing match words or mechanisms, run: npm run model"
+    "mechanisms: moving parts (CAD coordinates in meters). \"fourbar\" = parallel four-bar: crank pivot, follower pivot and the crank's far joint. After changing, run: npm run model"
   ],
   "robot": {
     "name": "Chuck Norris",
     "team": "Team 3950 · RoboGym Robotics",
     "season": "2026 REBUILT",
     "front": "auto",
-    "idleResetSeconds": 90,
+    "pitModeSeconds": 15,
     "autoSpinResumeSeconds": 8,
     "secondsPerRevolution": 52,
     "exclude": [
@@ -64,30 +64,30 @@
       "name": "Roller Bar Intake",
       "short": "Intake",
       "icon": "arrow-down-to-line",
-      "summary": "A full-width roller intake on a powered pivot that also opens the hopper.",
+      "summary": "A full-width roller intake on a parallel four-bar that drops to the floor and lifts the hopper wall with it.",
       "specs": [
+        {
+          "label": "Linkage",
+          "value": "Parallel four-bar"
+        },
+        {
+          "label": "Pivot Drive",
+          "value": "VersaPlanetary, 12:26 chain"
+        },
         {
           "label": "Roller Motor",
           "value": "Kraken X44"
         },
         {
-          "label": "Pivot",
-          "value": "VersaPlanetary, 12:26 chain"
-        },
-        {
           "label": "Rollers",
           "value": "Polycarb + rubber, 2 stages"
-        },
-        {
-          "label": "Width",
-          "value": "Full frame width"
         }
       ],
       "highlights": [
-        "Full-width over-the-bumper rollers",
-        "Touch it, own it pickup",
-        "Powered pivot, stows inside frame",
-        "VersaPlanetary + #35 chain drive"
+        "Parallel four-bar keeps rollers level",
+        "Full-width over-the-bumper pickup",
+        "Raises the hopper wall when stowed",
+        "Touch it, own it"
       ],
       "match": [
         "Intake Assembly",
@@ -99,37 +99,69 @@
     },
     {
       "id": "hopper",
-      "name": "Hopper & Indexer",
+      "name": "Hopper",
       "short": "Hopper",
       "icon": "layers",
-      "summary": "Stores game pieces and lines them up for the turrets one at a time.",
+      "summary": "Expanding hopper that stores fuel; its front wall rides on the intake four-bar.",
       "specs": [
         {
           "label": "Rollers",
           "value": "Mecanum top & bottom"
         },
         {
-          "label": "Indexer",
-          "value": "Master roller + 8 feed rollers"
+          "label": "Walls",
+          "value": "Expands with the intake"
         },
         {
-          "label": "Motors",
-          "value": "Kraken X44 + Kraken X60"
+          "label": "Floor Rollers",
+          "value": "5 powered rollers"
         },
         {
-          "label": "Capacity",
-          "value": "30 pieces"
+          "label": "Motor",
+          "value": "Kraken X44"
         }
       ],
       "highlights": [
+        "Grows taller when the intake drops",
         "Mecanum rollers prevent corner jams",
-        "Indexer feeds both turrets evenly",
-        "Deep storage for long volleys"
+        "Powered floor keeps fuel moving"
       ],
       "match": [
         "Hopper Assembly",
         "Hopper Roller",
-        "Mecanum Roller",
+        "Mecanum Roller"
+      ]
+    },
+    {
+      "id": "indexer",
+      "name": "Indexer",
+      "short": "Indexer",
+      "icon": "layers",
+      "summary": "Feeds fuel from the hopper up into both turrets, one piece at a time.",
+      "specs": [
+        {
+          "label": "Feeds",
+          "value": "2 turrets, independently"
+        },
+        {
+          "label": "Rollers",
+          "value": "Master + 8 feed rollers"
+        },
+        {
+          "label": "Drive",
+          "value": "5M & 3M belts"
+        },
+        {
+          "label": "Motor",
+          "value": "Kraken X60"
+        }
+      ],
+      "highlights": [
+        "Splits fuel evenly between turrets",
+        "Belt-driven feed rollers",
+        "Sits right under the turrets"
+      ],
+      "match": [
         "Indexer"
       ]
     },
@@ -265,7 +297,6 @@
         "within": "Left Turret Assembly",
         "match": [
           "Shooter Assembly",
-          "Turret Wiring Side Panel",
           "Turret Tubes Assembly",
           "200T 20DP Turntable Gear"
         ]
@@ -292,7 +323,6 @@
         "within": "Right Turret Assembly",
         "match": [
           "Shooter Assembly",
-          "Turret Wiring Side Panel",
           "Turret Tubes Assembly",
           "200T 20DP Turntable Gear"
         ]
@@ -306,6 +336,7 @@
       "id": "intake",
       "name": "Intake & Hopper",
       "subsystem": "intake",
+      "type": "fourbar",
       "axis": [
         1,
         0,
@@ -313,18 +344,35 @@
       ],
       "pivot": [
         0,
-        0.2165,
-        0.2095
+        0.2164,
+        0.2094
+      ],
+      "follower": [
+        0,
+        0.2545,
+        0.1434
+      ],
+      "couplerJoint": [
+        0,
+        0.2913,
+        0.4521
       ],
       "parts": {
         "within": "Intake Assembly"
       },
-      "min": -110,
+      "crank": [
+        "Powered Intake Pivot Bar",
+        "Intake Assembly/1/2\" Hex Hub"
+      ],
+      "followerLinks": [
+        "Intake Pivot Bar with Cutout"
+      ],
+      "min": -73,
       "max": 0,
       "default": 0,
       "states": {
         "Down": 0,
-        "Up": -110
+        "Up": -73
       }
     },
     {

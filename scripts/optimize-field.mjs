@@ -15,6 +15,8 @@ import { NodeIO, Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
 import { weld, simplifyPrimitive, meshopt, prune, dedup } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
+import * as THREE from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'cad', 'field');
@@ -91,6 +93,39 @@ function walk(node, names) {
 }
 for (const n of src.getRoot().getDefaultScene().listChildren()) walk(n, []);
 
+
+// ---- physics grid for the simulation: floor height + solid obstacles, from downward raycasts
+// Each 5 cm cell stores the floor height in mm (0–200: carpet, bumps, ramps) or 255 = solid
+// (walls, HUB, trench posts, towers). Rays start at 0.45 m, so the trench arm (0.565 m up) is
+// correctly *not* an obstacle: the robot fits under it.
+const CELL = 0.05, GX0 = -8.45, GZ0 = -4.2, NX = Math.round(16.9 / CELL), NZ = Math.round(8.4 / CELL);
+const heights = new Uint8Array(NX * NZ);
+{
+  let nTri = 0;
+  for (const b of buckets.values()) if (b.color[3] > 0.5) nTri += b.idx.length / 3;
+  const pos = new Float32Array(nTri * 9);
+  let o = 0;
+  for (const b of buckets.values()) {
+    if (b.color[3] <= 0.5) continue; // nets and clear panels don't stop a robot
+    for (let i = 0; i < b.idx.length; i++) { const v = b.idx[i] * 3; pos[o++] = b.pos[v]; pos[o++] = b.pos[v + 1]; pos[o++] = b.pos[v + 2]; }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const bvh = new MeshBVH(geo);
+  const ray = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+  let solid = 0;
+  for (let iz = 0; iz < NZ; iz++) for (let ix = 0; ix < NX; ix++) {
+    ray.origin.set(GX0 + (ix + 0.5) * CELL, 0.45, GZ0 + (iz + 0.5) * CELL);
+    const hit = bvh.raycastFirst(ray, THREE.DoubleSide);
+    const h = hit ? hit.point.y : 0;
+    const outside = Math.abs(ray.origin.x) > 8.27 || Math.abs(ray.origin.z) > 4.035;
+    let v;
+    if (outside || h > 0.2) { v = 255; solid++; } else v = Math.max(0, Math.min(200, Math.round(h * 1000)));
+    heights[iz * NX + ix] = v;
+  }
+  console.log(`Physics grid ${NX}×${NZ} @ ${CELL * 100} cm: ${(solid / (NX * NZ) * 100).toFixed(1)}% solid`);
+}
+
 // ---- field document
 const doc = new Document();
 const buffer = doc.createBuffer();
@@ -146,6 +181,7 @@ const hubData = [...hubs.values()].map((h) => ({
 })).sort((a, b) => a.center[0] - b.center[0]);
 const config = JSON.parse(fs.readFileSync(path.join(SRC, 'config.json'), 'utf8'));
 const data = {
+  grid: { x0: GX0, z0: GZ0, cell: CELL, nx: NX, nz: NZ, heights: Buffer.from(heights).toString('base64') },
   source: 'AdvantageScope Field3d_2026FRCFieldV2 (Mechanical-Advantage/AdvantageScopeAssets)',
   units: 'meters, +Y up, origin at field center',
   carpet: { length: config.widthInches * 0.0254, width: config.heightInches * 0.0254 },

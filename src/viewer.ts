@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import CameraControls from 'camera-controls';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { PartState, makeSolidMaterial, makeGhostMaterial, makeMaskMaterial, patchDepthMaterial, revealFx, ghostFx } from './materials';
 import { makeGrid, ContactShadow, Outline } from './effects';
 import { buildStandIn } from './standin';
+import { studioScene } from './studio';
 import { PartIndex, type PartsFile } from './parts';
 import { subsystemById, robot as robotConfig } from './config';
 
@@ -60,9 +60,21 @@ interface Sub {
   outward: number | null;
 }
 
+export interface MechNode {
+  node: THREE.Object3D;
+  role: 'rotate' | 'crank' | 'follower' | 'coupler';
+  axis: THREE.Vector3;
+  link: THREE.Vector3 | null; // crank pivot → coupler joint (four-bar)
+  restQ: THREE.Quaternion;
+  restP: THREE.Vector3;
+}
+
 export interface Mechanism {
   id: string;
   name: string;
+  type: 'rotate' | 'fourbar';
+  nodes: MechNode[];
+  /** Main pivot node (for pivot position / dragging). */
   node: THREE.Object3D;
   axis: THREE.Vector3;
   angle: Damped; // radians
@@ -78,7 +90,7 @@ export interface PickHit { pid: number; sub: string | null; point: THREE.Vector3
 export class Viewer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.02, 120);
+  readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.008, 80);
   readonly controls: CameraControls;
   readonly canvas: HTMLCanvasElement;
   /** Robot root: carries the front rotation; its parent `stage` carries lift and (in simulation) pose. */
@@ -112,6 +124,7 @@ export class Viewer {
   private spinFactor = new Damped(0, 0.6);
   private focusMix = new Damped(1, 0.12);
   private floorAlpha = 1;
+  private poseDirty = false;
   private reveal: { t: number; height: number } | null = null;
   private last = performance.now();
   private size = { w: 1, h: 1 };
@@ -121,6 +134,7 @@ export class Viewer {
   private robotHeight = 0.6;
   private robotRadius = 0.6;
   private light = false;
+  private envLight = false;
   quality: Quality = 'balanced';
   reducedMotion = false;
   spinning = false;
@@ -178,10 +192,10 @@ export class Viewer {
     c.polarRotateSpeed = 0.85;
     c.dollySpeed = 0.7;
     c.truckSpeed = 1.6;
-    c.dollyToCursor = false;
+    c.dollyToCursor = true; // zoom toward the finger / cursor
     c.minPolarAngle = 4 * DEG;
     c.maxPolarAngle = 168 * DEG; // the underside is reachable; the floor fades away below
-    c.minDistance = 0.12;
+    c.minDistance = 0.04;
     c.maxDistance = 3.6;
     c.restThreshold = 0.0025;
     this.controls = c;
@@ -205,11 +219,11 @@ export class Viewer {
 
   private buildEnvironment() {
     this.envRT?.dispose();
-    const room = new RoomEnvironment();
-    this.envRT = this.pmrem.fromScene(room, 0.04);
+    const studio = studioScene(this.light);
+    this.envRT = this.pmrem.fromScene(studio, 0.02);
     this.scene.environment = this.envRT.texture;
-    this.scene.environmentIntensity = 0.75;
-    room.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); });
+    this.scene.environmentIntensity = this.light ? 0.85 : 1.0;
+    studio.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); });
   }
 
   // ---------------------------------------------------------------- loading
@@ -287,18 +301,25 @@ export class Viewer {
       this.subs.set(id, { id, group, meshes, anchor: null, explodeDir: new THREE.Vector3(), outward: null });
     }
 
-    // Mechanisms (pivot nodes written by the build step).
+    // Mechanisms (pivot nodes written by the build step). A four-bar has a crank, a follower and a
+    // coupler node that all follow one angle; a plain mechanism has one rotating node.
     this.root.traverse((o) => {
       const u = o.userData;
       if (!u.mechanism) return;
-      const ax = new THREE.Vector3().fromArray(u.axis ?? [0, 1, 0]).normalize();
-      this.mechanisms.set(u.mechanism, {
-        id: u.mechanism, name: u.name ?? u.mechanism, node: o, axis: ax,
-        angle: new Damped((u.default ?? 0) * DEG, 0.32),
-        min: u.min ?? -180, max: u.max ?? 180, def: u.default ?? 0,
-        states: u.states ?? null, liftRobot: u.liftRobot ?? 0, unit: u.unit ?? '°',
-      });
-      o.userData.restQuaternion = o.quaternion.clone();
+      const axis = new THREE.Vector3().fromArray(u.axis ?? [0, 1, 0]).normalize();
+      let m = this.mechanisms.get(u.mechanism);
+      if (!m) {
+        m = {
+          id: u.mechanism, name: u.name ?? u.mechanism, type: u.type === 'fourbar' ? 'fourbar' : 'rotate', nodes: [], node: o, axis,
+          angle: new Damped((u.default ?? 0) * DEG, u.type === 'fourbar' ? 0.42 : 0.32),
+          min: u.min ?? -180, max: u.max ?? 180, def: u.default ?? 0,
+          states: u.states ?? null, liftRobot: u.liftRobot ?? 0, unit: u.unit ?? '°',
+        };
+        this.mechanisms.set(u.mechanism, m);
+      }
+      const role = (u.role ?? 'rotate') as MechNode['role'];
+      if (role === 'crank' || role === 'rotate') m.node = o;
+      m.nodes.push({ node: o, role, axis, link: u.link ? new THREE.Vector3().fromArray(u.link) : null, restQ: o.quaternion.clone(), restP: o.position.clone() });
     });
 
     // Which object carries each part id (so moving parts report correct boxes).
@@ -388,7 +409,7 @@ export class Viewer {
     ghostFx.uLight.value = light ? 1 : 0;
     ghostFx.uGhostColor.value.set(light ? 0x1f6fd1 : 0x74c7ff);
     if (this.ghostMat) { this.ghostMat.blending = light ? THREE.NormalBlending : THREE.AdditiveBlending; this.ghostMat.needsUpdate = true; }
-    this.scene.environmentIntensity = light ? 0.9 : 0.75;
+    if (this.envLight !== light) { this.envLight = light; this.buildEnvironment(); }
     this.floorAlpha = -1; // force refresh
     this.dirty = true;
   }
@@ -487,9 +508,15 @@ export class Viewer {
   private applyPose(explode: number, lift: number, angles: number[]) {
     for (const s of this.subs.values()) s.group.position.copy(s.explodeDir).multiplyScalar(explode);
     if (!this.simActive) this.stage.position.y = lift;
-    const q = new THREE.Quaternion();
+    const q = new THREE.Quaternion(), v = new THREE.Vector3();
     [...this.mechanisms.values()].forEach((m, i) => {
-      m.node.quaternion.copy(m.node.userData.restQuaternion).multiply(q.setFromAxisAngle(m.axis, angles[i]));
+      for (const n of m.nodes) {
+        q.setFromAxisAngle(n.axis, angles[i]);
+        if (n.role === 'coupler') {
+          // parallel four-bar: the coupler translates along the arc of the crank's far joint, without rotating
+          if (n.link) n.node.position.copy(n.restP).add(v.copy(n.link).applyQuaternion(q).sub(n.link));
+        } else n.node.quaternion.copy(n.restQ).multiply(q);
+      }
     });
     this.stage.updateMatrixWorld(true);
   }
@@ -544,7 +571,7 @@ export class Viewer {
     const polar = spec.polar === undefined || spec.polar === 'keep' ? this.controls.polarAngle : spec.polar;
     const size = box.getSize(new THREE.Vector3()).length();
     const pad = size < 0.08 ? 1.6 : size < 0.2 ? 1.35 : 1.22;
-    const d = THREE.MathUtils.clamp(this.fitBox(box, [az], polar, insets, pad) / (spec.zoom ?? 1), 0.16, 3.4);
+    const d = THREE.MathUtils.clamp(this.fitBox(box, [az], polar, insets, pad) / (spec.zoom ?? 1), 0.07, 3.4);
     this.withMotion(spec.transition ?? true, (t) => {
       this.controls.moveTo(center.x, center.y, center.z, t);
       this.controls.rotateTo(az, polar, t);
@@ -625,13 +652,37 @@ export class Viewer {
     const m = this.mechanisms.get(id);
     if (!m) return;
     m.angle.target = THREE.MathUtils.clamp(degrees, m.min, m.max) * DEG;
-    if (!animate || this.reducedMotion) m.angle.snap();
+    if (!animate || this.reducedMotion) { m.angle.snap(); this.poseDirty = true; }
     let lift = 0;
     for (const mm of this.mechanisms.values()) if (mm.liftRobot && Math.abs(mm.angle.target) > 0.01) lift = Math.max(lift, mm.liftRobot);
     this.lift.target = this.simActive ? 0 : lift;
     if (this.reducedMotion) this.lift.snap();
     this.shadowDirty = true;
     this.dirty = true;
+  }
+  /** Direct manipulation: follow the finger closely, then settle normally on release. */
+  dragMechanism(id: string, degrees: number) {
+    const m = this.mechanisms.get(id);
+    if (!m) return;
+    m.angle.smoothTime = 0.06;
+    m.angle.target = THREE.MathUtils.clamp(degrees, m.min, m.max) * DEG;
+    this.shadowDirty = true;
+    this.dirty = true;
+  }
+  endDragMechanism(id: string) {
+    const m = this.mechanisms.get(id);
+    if (m) m.angle.smoothTime = m.type === 'fourbar' ? 0.42 : 0.32;
+  }
+  /** Applies the current mechanism angles immediately (the simulation drives them itself). */
+  syncPose() {
+    this.applyPose(this.explode.value, this.lift.value, [...this.mechanisms.values()].map((m) => m.angle.value));
+    this.shadowDirty = true;
+  }
+  /** Sets a mechanism's current angle directly (no smoothing), in degrees. */
+  setMechanismNow(id: string, degrees: number) {
+    const m = this.mechanisms.get(id);
+    if (!m) return;
+    m.angle.snap(THREE.MathUtils.clamp(degrees, m.min, m.max) * DEG);
   }
   mechanismAngle(id: string) { const m = this.mechanisms.get(id); return m ? m.angle.target / DEG : 0; }
   mechanismValue(id: string) { const m = this.mechanisms.get(id); return m ? m.angle.value / DEG : 0; }
@@ -744,7 +795,8 @@ export class Viewer {
       active = true;
     }
 
-    let pose = false;
+    let pose = this.poseDirty;
+    this.poseDirty = false;
     if (this.explode.update(dt)) pose = true;
     if (this.lift.update(dt)) pose = true;
     for (const m of this.mechanisms.values()) if (m.angle.update(dt)) pose = true;

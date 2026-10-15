@@ -3,7 +3,7 @@ import { robot, subsystems, shortName, type Subsystem, type Spec } from './confi
 import type { PinInfo, Mechanism } from './viewer';
 import type { SearchResult } from './parts';
 import { ACCENTS, type Settings } from './settings';
-import type { SimStatus } from './sim';
+import type { SimStatus, SimMode, SimView } from './sim/index';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string) => {
@@ -38,6 +38,7 @@ export interface UiHandlers {
   onSettingsOpen(open: boolean): void;
   onResetSettings(): void;
   onSimView(): void;
+  onSimMode(mode: SimMode): void;
   onSimRestart(): void;
   onSimExit(): void;
 }
@@ -88,6 +89,8 @@ export class UI {
   private sheetEl: HTMLElement;
   private title: HTMLElement;
   private pinWidths = new Map<string, number>();
+  private tip: HTMLElement;
+  private pitHint: HTMLElement;
 
   constructor(private handlers: UiHandlers) {
     this.app = document.getElementById('app')!;
@@ -184,15 +187,37 @@ export class UI {
     this.simHud = h('div', 'sim-hud');
     this.simHud.hidden = true;
     this.simHud.innerHTML = `
-      <div class="sim-status glass"><span class="sim-dot"></span><span class="sim-phase">Simulation</span><span class="sim-sep"></span><span class="sim-stat"><b class="sim-scored">0</b> scored</span><span class="sim-stat"><b class="sim-stored">0</b> in robot</span></div>
+      <div class="sim-status glass">
+        <span class="sim-dot"></span><span class="sim-phase">Simulation</span>
+        <span class="sim-timer" hidden></span>
+        <span class="sim-sep"></span>
+        <span class="sim-stat"><b class="sim-scored">0</b> scored</span>
+        <span class="sim-stat"><b class="sim-stored">0</b><i class="sim-cap"></i> in robot</span>
+        <span class="sim-stat sim-bps-wrap"><b class="sim-bps">0.0</b> fuel/s</span>
+      </div>
       <div class="sim-controls glass">
-        <button class="tool" data-act="view">${icon('scan-eye')}<span class="label">Field View</span></button>
+        <div class="seg sim-mode" role="group" aria-label="Simulation mode">
+          <button data-mode="auto" aria-pressed="true">Auto</button><button data-mode="endless" aria-pressed="false">Endless</button>
+        </div>
+        <div class="dock-sep"></div>
+        <button class="tool" data-act="view">${icon('scan-eye')}<span class="label">Follow</span></button>
         <button class="tool" data-act="restart">${icon('rotate-ccw')}<span class="label">Restart</span></button>
         <button class="tool" data-act="exit">${icon('x')}<span class="label">Exit</span></button>
+      </div>
+      <div class="sim-result glass" hidden>
+        <p class="sim-result-kicker">Autonomous complete</p>
+        <p class="sim-result-big"><b class="sim-result-n">0</b> fuel scored</p>
+        <div class="sim-result-actions">
+          <button class="act" data-act="replay">${icon('rotate-ccw')}<span>Replay Auto</span></button>
+          <button class="act primary" data-act="endless">${icon('play')}<span>Endless Mode</span></button>
+        </div>
       </div>`;
     this.simHud.querySelector('[data-act=view]')!.addEventListener('click', () => handlers.onSimView());
     this.simHud.querySelector('[data-act=restart]')!.addEventListener('click', () => handlers.onSimRestart());
     this.simHud.querySelector('[data-act=exit]')!.addEventListener('click', () => handlers.onSimExit());
+    this.simHud.querySelector('[data-act=replay]')!.addEventListener('click', () => handlers.onSimMode('auto'));
+    this.simHud.querySelector('[data-act=endless]')!.addEventListener('click', () => handlers.onSimMode('endless'));
+    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-mode button').forEach((b) => b.addEventListener('click', () => handlers.onSimMode(b.dataset.mode as SimMode)));
     this.layer.append(this.simHud);
 
     // Loader
@@ -221,6 +246,11 @@ export class UI {
     this.sheetEl.setAttribute('aria-label', 'Settings');
     this.settingsEl.append(this.sheetEl);
     this.layer.append(this.settingsEl);
+
+    this.pitHint = h('div', 'pit-hint', `<span>Touch to explore</span>`);
+    this.layer.append(this.pitHint);
+    this.tip = h('div', 'hover-tip');
+    this.layer.append(this.tip);
 
     this.live = h('div', 'sr-only');
     this.live.setAttribute('aria-live', 'polite');
@@ -294,6 +324,7 @@ export class UI {
     this.lens.style.transform = `translateX(${sel.offsetLeft}px)`;
   }
 
+  setPit(on: boolean) { this.app.classList.toggle('pit', on); }
   setFocusedClass(on: boolean) { this.app.classList.toggle('focused', on); }
   setExploded(on: boolean) {
     this.explodeBtn.setAttribute('aria-pressed', String(on));
@@ -311,11 +342,21 @@ export class UI {
     this.app.classList.toggle('sim', on);
     this.simHud.hidden = !on;
   }
-  simStatus(s: SimStatus, view: string) {
-    this.simHud.querySelector('.sim-phase')!.textContent = s.loading ? 'Loading field…' : s.phase;
-    this.simHud.querySelector('.sim-scored')!.textContent = String(s.scored);
-    this.simHud.querySelector('.sim-stored')!.textContent = String(s.stored);
-    this.simHud.querySelector('[data-act=view] .label')!.textContent = view === 'follow' ? 'Field View' : 'Follow';
+  simStatus(s: SimStatus, view: SimView) {
+    const q = <T extends Element = HTMLElement>(sel: string) => this.simHud.querySelector(sel) as T;
+    q('.sim-phase').textContent = s.loading ? 'Loading field…' : s.phase;
+    q('.sim-scored').textContent = String(s.scored);
+    q('.sim-stored').textContent = String(s.stored);
+    q('.sim-cap').textContent = s.capacity ? `/${s.capacity}` : '';
+    q('.sim-bps').textContent = s.bps.toFixed(1);
+    const timer = q<HTMLElement>('.sim-timer');
+    timer.hidden = s.time === null;
+    if (s.time !== null) timer.textContent = `0:${String(Math.ceil(s.time)).padStart(2, '0')}`;
+    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-mode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === s.mode)));
+    q('[data-act=view] .label').textContent = view === 'follow' ? 'Follow' : view === 'field' ? 'Field' : 'Driver';
+    const res = q<HTMLElement>('.sim-result');
+    res.hidden = !s.ended;
+    if (s.ended) q('.sim-result-n').textContent = String(s.scored);
   }
 
   // ------------------------------------------------------------ panel
@@ -377,6 +418,10 @@ export class UI {
         ${specs.length ? `<dl class="specs${specs.length % 2 ? ' odd' : ''}">${specs.map((p) => `<div class="spec"><dt>${esc(p.label)}</dt><dd>${esc(p.value)}</dd></div>`).join('')}</dl>` : ''}
         ${s.highlights?.length ? `<ul class="highlights">${s.highlights.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
         ${this.mechHtml(mechs)}
+        <div class="actions">
+          <button class="act" data-act="isolate">${icon('focus')}<span>Isolate</span></button>
+          <button class="act" data-act="hide">${icon('eye-off')}<span>Hide</span></button>
+        </div>
       </div>
       <div class="panel-foot">
         <button class="nav-btn" data-act="prev" aria-label="Previous: ${esc(prev.name)}">${icon('chevron-left')}<span class="label">${esc(shortName(prev))}</span></button>
@@ -518,8 +563,8 @@ export class UI {
         <h3>Presentation</h3>
         ${toggle('autoSpin', 'Turntable Spin')}
         ${slider('spinSeconds', 'Spin Speed (slower →)', 25, 120, 1)}
-        <span class="row-label">Reset for the Next Judge</span>
-        ${seg('idleReset', [[0, 'Off'], [60, '1 min'], [90, '90 s'], [180, '3 min']])}
+        <span class="row-label">Pit Display After</span>
+        ${seg('pitMode', [[0, 'Off'], [15, '15 s'], [30, '30 s'], [60, '1 min']])}
         <h3>Performance</h3>
         ${seg('quality', [['battery', 'Battery'], ['balanced', 'Balanced'], ['max', 'Max']])}
         ${toggle('stats', 'Show Frame Rate')}
@@ -578,6 +623,16 @@ export class UI {
     const lx = Math.min(Math.max(x, 12), W - 220), ly = Math.max(y - 30, 8);
     this.bracketLabel.style.transform = `translate3d(${lx}px, ${ly}px, 0)`;
     this.bracketLabel.classList.add('on');
+  }
+
+  /** Small floating label next to the cursor: what a click would select, or a drag readout. */
+  hoverTip(t: { x: number; y: number; title: string; sub: string; hint: string | null } | null) {
+    if (!t) { this.tip.classList.remove('on'); return; }
+    this.tip.innerHTML = `<b>${esc(t.title)}</b><span>${esc(t.sub)}</span>${t.hint ? `<em>${esc(t.hint)}</em>` : ''}`;
+    const W = this.app.clientWidth;
+    const x = Math.min(t.x + 18, W - 260);
+    this.tip.style.transform = `translate3d(${x}px, ${t.y + 18}px, 0)`;
+    this.tip.classList.add('on');
   }
 
   // ------------------------------------------------------------ loader / toast / debug

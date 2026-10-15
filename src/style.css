@@ -696,3 +696,59 @@ input[type='range']::-moz-range-thumb { width: 28px; height: 28px; border-radius
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.15s !important; transition-property: opacity !important; animation: none !important; }
 }
+
+/* ------------------------------------------------------------------ hover preview */
+.hover-tip {
+  position: absolute; left: 0; top: 0; pointer-events: none !important;
+  display: flex; flex-direction: column; gap: 1px; max-width: 250px;
+  padding: 7px 11px 8px; border-radius: 12px;
+  background: color-mix(in srgb, var(--stage) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border: 0.5px solid var(--hairline);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  opacity: 0; transition: opacity 0.15s var(--ease);
+  z-index: 15;
+}
+.hover-tip.on { opacity: 1; }
+.hover-tip b { font-size: 13px; line-height: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hover-tip span { font-size: 12px; line-height: 15px; color: var(--accent-ink); font-weight: 600; }
+.hover-tip em { font-style: normal; font-size: 12px; line-height: 15px; color: var(--text-2); }
+
+/* ------------------------------------------------------------------ pit display */
+.app.pit .dock, .app.pit .corner, .app.pit .panel, .app.pit .tray, .app.pit .pill, .app.pit .hint,
+.app.pit .sim-hud, .app.pit .toast, .app.pit .search, .app.pit .debug, .app.pit .hover-tip {
+  opacity: 0 !important; pointer-events: none !important;
+}
+.app.pit .dock { transform: translate(-50%, 30%); }
+.app.pit #pins, .app.pit .brackets, .app.pit .bracket-label { opacity: 0; }
+#pins { transition: opacity 0.6s var(--ease); }
+.dock, .corner, .panel, .tray, .pill, .sim-hud > * { transition-property: opacity, transform; transition-duration: 0.6s; transition-timing-function: var(--ease); }
+.pit-hint {
+  position: absolute; left: 50%; bottom: calc(var(--dock-bottom) + 18px); transform: translateX(-50%);
+  font-size: 15px; letter-spacing: 0.02em; color: var(--text-2); pointer-events: none !important;
+  opacity: 0; transition: opacity 0.8s var(--ease);
+}
+.app.pit .pit-hint { opacity: 1; animation: pit-breathe 3.2s ease-in-out infinite; }
+@keyframes pit-breathe { 50% { opacity: 0.35; } }
+
+/* ------------------------------------------------------------------ simulation HUD (v2) */
+.sim-timer { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); background: var(--fill-strong); padding: 2px 10px; border-radius: 10px; }
+.sim-cap { font-style: normal; color: var(--text-3); font-weight: 500; margin-right: 4px; }
+.sim-phase { min-width: 170px; }
+.sim-controls { align-items: center; }
+.sim-controls .seg { margin: 0; width: 200px; }
+.sim-controls .dock-sep { margin: 0 6px; }
+.sim-result {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(380px, calc(100vw - 48px)); border-radius: 30px; padding: 22px 22px 18px; text-align: center;
+  animation: sheet-in 0.5s var(--spring);
+}
+.sim-result-kicker { margin: 0; font-size: 15px; color: var(--text-2); }
+.sim-result-big { margin: 4px 0 16px; font-size: 22px; font-weight: 600; }
+.sim-result-big b { font-size: 44px; font-weight: 800; display: block; line-height: 52px; font-variant-numeric: tabular-nums; }
+.sim-result-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.act.primary { background: var(--accent); color: #fff; }
+.app.portrait .sim-bps-wrap, .app.compact .sim-bps-wrap { display: none; }
+.app.portrait .sim-controls .tool .label { display: none; }
+.app.portrait .sim-controls .tool { width: 46px; padding: 0; justify-content: center; }
+.app.portrait .sim-phase { min-width: 0; }

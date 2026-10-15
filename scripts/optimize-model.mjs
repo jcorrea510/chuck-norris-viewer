@@ -64,6 +64,7 @@ function subsystemForPath(names) {
   return fallback.id;
 }
 
+/** Which mechanism (and, for a four-bar, which link) a part rides on. */
 function mechanismFor(names, cadBox) {
   const lower = names.map((n) => clean(n).toLowerCase());
   for (const m of mechanisms) {
@@ -75,9 +76,40 @@ function mechanismFor(names, cadBox) {
       const { min, max } = p.region;
       if (!(cadBox.lo.every((v, k) => v >= min[k] - 1e-4) && cadBox.hi.every((v, k) => v <= max[k] + 1e-4))) continue;
     }
-    return m;
+    if (m.type !== 'fourbar') return { mech: m, role: 'rotate' };
+    // Parallel four-bar: links rotate about their ground pivots, everything else on the coupler translates.
+    const c = cadBox.lo.map((v, k) => (v + cadBox.hi[k]) / 2);
+    const nearAxis = (pv, r) => Math.hypot(c[1] - pv[1], c[2] - pv[2]) < r; // axis is X
+    const leaf = lower.slice(-2).join(' ');
+    if ((m.crank ?? []).some((x) => leaf.includes(x.toLowerCase())) || nearAxis(m.pivot, 0.045)) return { mech: m, role: 'crank' };
+    if ((m.followerLinks ?? []).some((x) => leaf.includes(x.toLowerCase())) || nearAxis(m.follower, 0.03)) return { mech: m, role: 'follower' };
+    return { mech: m, role: 'coupler' };
   }
   return null;
+}
+
+// ---------------------------------------------------------------- realistic colors
+/** Onshape exports most parts white or black; give them the real-world look of their material. */
+function colorFor(names, rgba, finish) {
+  const leaf = names.map(clean).filter(Boolean).slice(-2).join(' ').toLowerCase();
+  let [r, g, b] = rgba;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const neutral = max - min < 0.06;
+  if (/brass/.test(leaf)) return [0.78, 0.58, 0.27];
+  if (/belt/.test(leaf)) return [0.07, 0.07, 0.075];
+  if (/chain/.test(leaf)) return [0.5, 0.51, 0.53];
+  if (/kraken|falcon/.test(leaf) && neutral) return [0.06, 0.062, 0.07];
+  if (/\bhex \(|hex shaft|output shaft|axle/.test(leaf) && neutral) return [0.34, 0.35, 0.37];
+  if (finish === 'steel' && neutral) return max > 0.5 ? [0.62, 0.63, 0.65] : [0.05, 0.05, 0.055];
+  if (finish === 'metal' && neutral && max > 0.6) return [0.78, 0.79, 0.81]; // natural 6061 aluminum
+  if (neutral && max < 0.06) return [0.03, 0.032, 0.036]; // black anodize / black polycarb
+  if (!neutral) {
+    // Boost saturation of genuinely colored parts so they read under studio light.
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const k = 1.35;
+    [r, g, b] = [r, g, b].map((v) => Math.min(1, Math.max(0, l + (v - l) * k)));
+  }
+  return [r, g, b];
 }
 
 // ---------------------------------------------------------------- finishes
@@ -197,6 +229,7 @@ async function main() {
   const buckets = new Map(); // `${sub}|${mech}|${finish}` -> Bucket
   const coverage = new Map(subsystems.map((s) => [s.id, { parts: 0, tris: 0 }]));
   const mechCount = new Map(mechanisms.map((m) => [m.id, 0]));
+  const roleNames = new Map(); // `${id}#${role}` -> names (for the report)
   const pivots = new Map(); // mech id -> CAD-space pivot
   let excluded = 0;
   const treeLines = [];
@@ -238,7 +271,8 @@ async function main() {
       const sub0 = subsystemForPath(here);
       const m = node.getWorldMatrix();
       const cadBox = cadBoxOf(mesh, m);
-      const mech = mechanismFor(here, cadBox);
+      const hit = mechanismFor(here, cadBox);
+      const mech = hit?.mech ?? null;
       const sub = mech?.subsystem ?? sub0;
       for (const mm of mechanisms) {
         if (mm.pivotPart && !pivots.has(mm.id) && mm.pivotPart.every((p) => here.some((h) => clean(h).toLowerCase().includes(p.toLowerCase())))) {
@@ -252,7 +286,12 @@ async function main() {
       if (pid > 65535) throw new Error('More than 65535 parts');
       const cov = coverage.get(sub);
       cov.parts++;
-      if (mech) mechCount.set(mech.id, mechCount.get(mech.id) + 1);
+      if (mech) {
+        mechCount.set(mech.id, mechCount.get(mech.id) + 1);
+        const k = `${mech.id}#${hit.role}`;
+        if (!roleNames.has(k)) roleNames.set(k, new Map());
+        const nmap = roleNames.get(k); const dn = display(nm); nmap.set(dn, (nmap.get(dn) ?? 0) + 1);
+      }
       const { n, det } = normalMatrix(m);
       for (const prim of mesh.listPrimitives()) {
         if (prim.getMode() !== 4) continue;
@@ -262,10 +301,10 @@ async function main() {
         cov.tris += tc / 3;
         if (INSPECT) continue;
         const finish = finishFor(here, c);
-        const key = `${sub}|${mech?.id ?? '-'}|${finish}`;
+        const key = `${sub}|${mech ? `${mech.id}#${hit.role}` : '-'}|${finish}`;
         if (!buckets.has(key)) buckets.set(key, new Bucket());
         const b = buckets.get(key);
-        const rgb = [0, 1, 2].map((k) => Math.round(Math.min(1, Math.max(0, c[k])) * 255));
+        const rgb = colorFor(here, c, finish).map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255));
         b.jobs.push({ prim, m, n, flip: det < 0, rgb, pid });
         b.icount += tc;
         b.vcount += prim.getAttribute('POSITION').getCount();
@@ -290,6 +329,11 @@ async function main() {
     console.log(`${m.name.padEnd(18)} ${String(mechCount.get(m.id)).padStart(4)} parts  pivot ${pv ? pv.map((v) => v.toFixed(4)).join(', ') : 'NOT FOUND'}  axis ${m.axis.join(',')}`);
     if (!pv) throw new Error(`Mechanism ${m.id}: pivot not found`);
     if (!mechCount.get(m.id)) throw new Error(`Mechanism ${m.id}: no parts matched`);
+    if (m.type === 'fourbar') for (const role of ['crank', 'follower', 'coupler']) {
+      const nmap = roleNames.get(`${m.id}#${role}`) ?? new Map();
+      const n = [...nmap.values()].reduce((a, b) => a + b, 0);
+      console.log(`   ${role.padEnd(9)} ${String(n).padStart(4)} parts: ${[...nmap.entries()].filter(([k]) => role !== 'coupler' || !HARDWARE.test(k)).slice(0, role === 'coupler' ? 6 : 12).map(([k, v]) => v > 1 ? `${k} ×${v}` : k).join(', ')}`);
+    }
   }
   if (INSPECT) return;
 
@@ -351,8 +395,11 @@ async function main() {
     }
   }
 
+  const vecOut = (v) => rot(v).map((x) => x * unitScale);
   const mechOut = new Map(mechanisms.map((m) => [m.id, {
     pivot: toOut(m.pivot ?? pivots.get(m.id)),
+    follower: m.follower ? toOut(m.follower) : null,
+    link: m.couplerJoint ? vecOut(m.couplerJoint.map((v, k) => v - m.pivot[k])) : null,
     axis: rot(m.axis),
   }]));
 
@@ -384,10 +431,14 @@ async function main() {
       const meshNode = doc.createNode(name).setMesh(doc.createMesh(name).addPrimitive(prim)).setExtras({ subsystem: sub });
       if (mech === '-') { subNodes.get(sub).addChild(meshNode); continue; }
       if (!mechNodes.has(mech)) {
-        const def = mechanisms.find((m) => m.id === mech);
-        const { pivot, axis } = mechOut.get(mech);
+        const [id, role] = mech.split('#');
+        const def = mechanisms.find((m) => m.id === id);
+        const out = mechOut.get(id);
+        // rotate / crank turn about the pivot, follower about its own pivot, coupler only translates
+        const pivot = role === 'follower' ? out.follower : role === 'coupler' ? [0, 0, 0] : out.pivot;
         const pivotNode = doc.createNode(`mechanism:${mech}`).setTranslation(pivot).setExtras({
-          mechanism: mech, name: def.name, axis, min: def.min, max: def.max, default: def.default ?? 0,
+          mechanism: id, role, type: def.type ?? 'rotate', name: def.name, axis: out.axis, link: out.link,
+          min: def.min, max: def.max, default: def.default ?? 0,
           states: def.states ?? null, liftRobot: def.liftRobot ?? 0, unit: def.unit ?? '°',
         });
         const offsetNode = doc.createNode(`mechanism:${mech}:offset`).setTranslation(pivot.map((v) => -v));
