@@ -57,7 +57,7 @@ All the text lives in **`src/subsystems.json`**.
 
 1. On GitHub, open `src` → `subsystems.json`, then click the **pencil** icon.
 2. Change the text between the quote marks. Keep every quote mark and comma.
-3. Click **Commit changes**. The site updates in about two minutes.
+3. Click **Commit changes**. The site updates in about two minutes. Open copies pick it up by themselves: they check every minute and reload once nobody has touched the screen for 10 seconds (or tap **Reload** on the "New version available" note).
 
 | Field | What it is |
 | --- | --- |
@@ -107,10 +107,10 @@ The field comes from the AdvantageScope 2026 field model (see below). To rebuild
 
 ## Troubleshooting
 
-- **The robot didn't update.** Fully close the app (swipe it away) and open it on Wi-Fi.
+- **The robot didn't update.** It needs Wi-Fi to see the new version and about two minutes after a push. Still old? Fully close the app (swipe it away) and open it again.
 - **"Restoring…" appears.** iPadOS reclaimed graphics memory in the background. It recovers by itself.
 - **The screen sleeps.** The page asks the iPad to stay awake. If it still dims, set Settings → Display & Brightness → Auto-Lock to **Never** for the event.
-- **It feels slow or the iPad gets warm.** Settings (press and hold the name) → Performance → **Battery**.
+- **It feels slow or the iPad gets warm.** Settings (gear button, top right) → Performance → **Battery**.
 - **No sounds.** Check the iPad's silent switch and volume, then Settings → Sound.
 - **The site didn't rebuild.** On GitHub, open **Actions**. A red X usually means a typo in `subsystems.json`.
 - **Frame-rate numbers:** Settings → Show Frame Rate, or add `?debug=1` to the address.
