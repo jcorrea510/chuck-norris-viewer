@@ -412,6 +412,106 @@
         "Open": -95
       },
       "liftRobot": 0.5
+    },
+    {
+      "id": "module-1",
+      "name": "Swerve Module 1",
+      "subsystem": "swerve",
+      "hidden": true,
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "pivotPart": [
+        "SDS MK4i <1>",
+        "MK3 Center Column"
+      ],
+      "parts": {
+        "within": "SDS MK4i <1>",
+        "match": [
+          "MK4 Line Turret Assembly"
+        ]
+      },
+      "min": -180,
+      "max": 180,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "module-2",
+      "name": "Swerve Module 2",
+      "subsystem": "swerve",
+      "hidden": true,
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "pivotPart": [
+        "SDS MK4i <2>",
+        "MK3 Center Column"
+      ],
+      "parts": {
+        "within": "SDS MK4i <2>",
+        "match": [
+          "MK4 Line Turret Assembly"
+        ]
+      },
+      "min": -180,
+      "max": 180,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "module-3",
+      "name": "Swerve Module 3",
+      "subsystem": "swerve",
+      "hidden": true,
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "pivotPart": [
+        "SDS MK4i <3>",
+        "MK3 Center Column"
+      ],
+      "parts": {
+        "within": "SDS MK4i <3>",
+        "match": [
+          "MK4 Line Turret Assembly"
+        ]
+      },
+      "min": -180,
+      "max": 180,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "module-4",
+      "name": "Swerve Module 4",
+      "subsystem": "swerve",
+      "hidden": true,
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "pivotPart": [
+        "SDS MK4i <4>",
+        "MK3 Center Column"
+      ],
+      "parts": {
+        "within": "SDS MK4i <4>",
+        "match": [
+          "MK4 Line Turret Assembly"
+        ]
+      },
+      "min": -180,
+      "max": 180,
+      "default": 0,
+      "unit": "°"
     }
   ]
 }

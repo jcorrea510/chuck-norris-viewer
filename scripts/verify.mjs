@@ -101,13 +101,13 @@ for (const size of SIZES) {
     check(await page.evaluate(() => window.__viewer.state.sel === null), 'drag starting on the robot does not select');
     hit = await findHit(page);
     await page.touchscreen.tap(hit.x, hit.y);
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => window.__viewer.state.sel !== null, null, { timeout: 60000 }).catch(() => {});
     await settle(page);
     const s1 = await page.evaluate(() => window.__viewer.state.sel);
     check(s1?.kind === 'node', `tap on geometry selects a part (${s1?.label})`);
     await shot(page, size, '03-part');
     await page.touchscreen.tap(hit.x, hit.y);
-    await page.waitForTimeout(400);
+    await page.waitForFunction((a) => JSON.stringify(window.__viewer.state.sel) !== a, JSON.stringify(s1), { timeout: 60000 }).catch(() => {});
     await settle(page);
     const s2 = await page.evaluate(() => window.__viewer.state.sel);
     check(s2 && JSON.stringify(s2) !== JSON.stringify(s1), `tapping again selects the parent (${s2?.label ?? s2?.id})`);
@@ -115,11 +115,11 @@ for (const size of SIZES) {
     await page.evaluate(() => window.__viewer.api.overview());
     await settle(page, 800);
     hit = await findHit(page);
-    const before = await page.evaluate(() => { window.__viewer.state.doubleTapMs = 6000; return window.__viewer.viewer.hiddenCount(); });
+    const before = await page.evaluate(() => { window.__viewer.state.doubleTapMs = 30000; return window.__viewer.viewer.hiddenCount(); });
     await page.touchscreen.tap(hit.x, hit.y);
     await page.waitForTimeout(90);
     await page.touchscreen.tap(hit.x, hit.y);
-    await page.waitForTimeout(500);
+    await page.waitForFunction((b) => window.__viewer.viewer.hiddenCount() > b, before, { timeout: 60000 }).catch(() => {});
     await settle(page);
     const after = await page.evaluate(() => window.__viewer.viewer.hiddenCount());
     await page.evaluate(() => { window.__viewer.state.doubleTapMs = 260; });
@@ -179,10 +179,15 @@ for (const size of SIZES) {
   if (size.name === SIZES[0].name) {
     await tapEl(page, tool('Simulate'));
     await page.waitForFunction(() => window.__viewer.state.sim?.active, null, { timeout: 120000 });
-    for (let i = 0; i < 40; i++) await page.evaluate(() => { const v = window.__viewer.viewer; for (const h of v.hooks) h(1 / 30); });
+    await page.evaluate(() => { const sim = window.__viewer.state.sim; for (let i = 0; i < 60 * 12; i++) sim.frame(1 / 60); });
     await settle(page);
     await shot(page, size, '11-simulation');
-    check(await page.evaluate(() => Number(document.querySelector('.sim-scored').textContent) > 0), 'simulation scores fuel in the HUB');
+    check(await page.evaluate(() => window.__viewer.state.sim.balls.scored > 0), 'auto scores fuel in the HUB');
+    await tapEl(page, '.sim-mode button[data-mode=endless]');
+    await page.evaluate(() => { const sim = window.__viewer.state.sim; for (let i = 0; i < 60 * 25; i++) sim.frame(1 / 60); });
+    await settle(page);
+    await shot(page, size, '11b-simulation-endless');
+    check(await page.evaluate(() => window.__viewer.state.sim.mode === 'endless' && window.__viewer.state.sim.balls.scored > 0), 'endless mode scores fuel');
     await tapEl(page, '.sim-controls [data-act=exit]');
     await settle(page);
     check(await page.evaluate(() => !window.__viewer.state.sim && !window.__viewer.viewer.simActive), 'exit simulation returns to the robot');

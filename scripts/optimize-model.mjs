@@ -439,7 +439,7 @@ async function main() {
         const pivotNode = doc.createNode(`mechanism:${mech}`).setTranslation(pivot).setExtras({
           mechanism: id, role, type: def.type ?? 'rotate', name: def.name, axis: out.axis, link: out.link,
           min: def.min, max: def.max, default: def.default ?? 0,
-          states: def.states ?? null, liftRobot: def.liftRobot ?? 0, unit: def.unit ?? '°',
+          states: def.states ?? null, liftRobot: def.liftRobot ?? 0, unit: def.unit ?? '°', hidden: !!def.hidden,
         });
         const offsetNode = doc.createNode(`mechanism:${mech}:offset`).setTranslation(pivot.map((v) => -v));
         pivotNode.addChild(offsetNode);

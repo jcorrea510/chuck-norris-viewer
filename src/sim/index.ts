@@ -41,6 +41,11 @@ export class Simulation {
   private trails!: THREE.LineSegments;
   private trailPos = new Map<number, number[]>();
   private pulse!: THREE.Mesh;
+  // the robot's "brain", visualized: planned path, the fuel it is hunting, turret aim lines
+  private pathLine!: THREE.Line;
+  private pathRef: unknown = null;
+  private targetRing!: THREE.Mesh;
+  private aimLines!: THREE.LineSegments;
   private pulseT = 1;
   private acc = 0;
   private hook = (dt: number) => this.frame(dt);
@@ -113,6 +118,23 @@ export class Simulation {
     );
     this.pulse.position.set(red.center[0], red.center[1] + 0.02, red.center[2]);
     this.group.add(this.pulse);
+
+    const holo = new THREE.Color(0x6fd3ff);
+    this.pathLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: holo, dashSize: 0.18, gapSize: 0.1, transparent: true, opacity: 0.85, depthWrite: false }));
+    this.pathLine.frustumCulled = false;
+    this.pathLine.renderOrder = 3;
+    this.group.add(this.pathLine);
+    this.targetRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.2, 0.235, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: holo, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.targetRing.visible = false;
+    this.group.add(this.targetRing);
+    const ag = new THREE.BufferGeometry();
+    ag.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+    this.aimLines = new THREE.LineSegments(ag, new THREE.LineBasicMaterial({ color: 0xff8fa8, transparent: true, opacity: 0.35, depthWrite: false }));
+    this.aimLines.frustumCulled = false;
+    this.group.add(this.aimLines);
 
     // Take over the stage
     const kl = v.keyLight, sc = kl.shadow.camera;
@@ -240,6 +262,7 @@ export class Simulation {
     }
     this.writeInstances();
     this.updateTrails();
+    this.updateBrainViz();
     this.updateCamera(dt);
     if (this.pulseT < 1) {
       this.pulseT = Math.min(1, this.pulseT + dt * 1.8);
@@ -254,6 +277,36 @@ export class Simulation {
     this.statusClock += dt;
     if (this.statusClock > 0.12) { this.statusClock = 0; this.emit(false); }
     return true;
+  }
+
+  private updateBrainViz() {
+    const r = this.robot;
+    // planned path (rebuilt when the plan changes), drawn just above the carpet
+    const order = r.done ? null : r.order;
+    if (order !== this.pathRef) {
+      this.pathRef = order;
+      if (order) {
+        const pts = [new THREE.Vector3(r.x, 0.02, r.z), ...order.path.map(([x, z]) => new THREE.Vector3(x, this.field.floor(x, z) + 0.02, z))];
+        this.pathLine.geometry.dispose();
+        this.pathLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        this.pathLine.computeLineDistances();
+      }
+      this.pathLine.visible = !!order;
+    }
+    // the fuel Endless is going after
+    const t = this.brain instanceof EndlessBrain ? this.brain.targetBall : -1;
+    this.targetRing.visible = t >= 0 && this.balls.available(t);
+    if (this.targetRing.visible) {
+      const p = this.balls.pos;
+      this.targetRing.position.set(p[t * 3], this.field.floor(p[t * 3], p[t * 3 + 2]) + 0.012, p[t * 3 + 2]);
+      this.targetRing.scale.setScalar(1 + 0.12 * Math.sin(this.clock * 6));
+    }
+    // aim lines from each turret to the HUB while it has fuel to shoot
+    const a = this.aimLines.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const ends = r.turretExits();
+    ends.forEach((e, k) => { a.setXYZ(k * 2, e.x, e.y, e.z); a.setXYZ(k * 2 + 1, this.hubTarget[0], this.hubTarget[1], this.hubTarget[2]); });
+    a.needsUpdate = true;
+    this.aimLines.visible = r.stored.length > 0;
   }
 
   private lastRobot = new THREE.Vector3();
@@ -412,6 +465,7 @@ class EndlessBrain {
   phase = 'Endless';
   private mode: 'collect' | 'score' = 'score';
   private target = -1;
+  get targetBall() { return this.mode === 'collect' ? this.target : -1; }
   private replan = 0;
   private progress = { x: 0, z: 0, t: 0, strikes: 0 };
   private blacklist = new Map<number, number>();

@@ -1,4 +1,5 @@
 import { icon } from './icons';
+import qrcode from 'qrcode-generator';
 import { robot, subsystems, shortName, type Subsystem, type Spec } from './config';
 import type { PinInfo, Mechanism } from './viewer';
 import type { SearchResult } from './parts';
@@ -36,6 +37,7 @@ export interface UiHandlers {
   onFullscreen(): void;
   onSettings(s: Partial<Settings>): void;
   onSettingsOpen(open: boolean): void;
+  onSettingsRequest(): void;
   onResetSettings(): void;
   onSimView(): void;
   onSimMode(mode: SimMode): void;
@@ -89,8 +91,11 @@ export class UI {
   private sheetEl: HTMLElement;
   private title: HTMLElement;
   private pinWidths = new Map<string, number>();
+  private sheetOpenedAt = 0;
   private tip: HTMLElement;
   private pitHint: HTMLElement;
+  private pitCaption: HTMLElement;
+  private pitQr: HTMLElement;
 
   constructor(private handlers: UiHandlers) {
     this.app = document.getElementById('app')!;
@@ -111,7 +116,7 @@ export class UI {
     this.title.setAttribute('role', 'button');
     this.title.setAttribute('aria-label', `${robot.name}. Press and hold for settings.`);
     this.layer.append(this.title);
-    this.longPress(this.title, () => this.openSettings(true));
+    this.longPress(this.title, () => handlers.onSettingsRequest());
 
     // Top-right: search + full screen, one icon group on a shared glass capsule
     const corner = h('div', 'corner glass');
@@ -240,7 +245,8 @@ export class UI {
     // Settings (hidden: press and hold the title, or the , key)
     this.settingsEl = h('div', 'sheet-backdrop');
     this.settingsEl.hidden = true;
-    this.settingsEl.addEventListener('click', (e) => { if (e.target === this.settingsEl) this.openSettings(false); });
+    // the finger that held the title lifts right after the sheet appears: don't treat that as "tap outside"
+    this.settingsEl.addEventListener('click', (e) => { if (e.target === this.settingsEl && performance.now() - this.sheetOpenedAt > 700) this.openSettings(false); });
     this.sheetEl = h('section', 'sheet glass');
     this.sheetEl.setAttribute('role', 'dialog');
     this.sheetEl.setAttribute('aria-label', 'Settings');
@@ -249,6 +255,10 @@ export class UI {
 
     this.pitHint = h('div', 'pit-hint', `<span>Touch to explore</span>`);
     this.layer.append(this.pitHint);
+    this.pitCaption = h('div', 'pit-caption', '<p class="pc-kicker"></p><h2></h2><p class="pc-line"></p>');
+    this.layer.append(this.pitCaption);
+    this.pitQr = h('div', 'pit-qr');
+    this.layer.append(this.pitQr);
     this.tip = h('div', 'hover-tip');
     this.layer.append(this.tip);
 
@@ -285,7 +295,14 @@ export class UI {
     el.addEventListener('pointerdown', (e) => {
       x = e.clientX; y = e.clientY;
       el.classList.add('pressing');
-      t = window.setTimeout(() => { el.classList.remove('pressing'); fn(); }, ms);
+      t = window.setTimeout(() => {
+        el.classList.remove('pressing');
+        fn();
+        // swallow the click that ends this same press (it would land on whatever just opened)
+        const block = (ev: Event) => { ev.stopPropagation(); ev.preventDefault(); };
+        window.addEventListener('click', block, true);
+        window.addEventListener('pointerup', () => setTimeout(() => window.removeEventListener('click', block, true), 350), { capture: true, once: true });
+      }, ms);
     });
     const cancel = () => { clearTimeout(t); el.classList.remove('pressing'); };
     el.addEventListener('pointerup', cancel);
@@ -324,7 +341,25 @@ export class UI {
     this.lens.style.transform = `translateX(${sel.offsetLeft}px)`;
   }
 
-  setPit(on: boolean) { this.app.classList.toggle('pit', on); }
+  setPit(on: boolean) {
+    this.app.classList.toggle('pit', on);
+    if (on && !this.pitQr.innerHTML) {
+      // "Explore on your phone": the site's own address, generated locally (works offline)
+      const qr = qrcode(0, 'M');
+      qr.addData(location.origin + location.pathname);
+      qr.make();
+      this.pitQr.innerHTML = `${qr.createSvgTag({ cellSize: 3, margin: 0, scalable: true })}<span>Explore on your phone</span>`;
+    }
+    if (!on) this.pitShowcase(null);
+  }
+  /** Caption for the pit showcase (null hides it). */
+  pitShowcase(c: { kicker: string; title: string; line: string } | null) {
+    if (!c) { this.pitCaption.classList.remove('on'); return; }
+    this.pitCaption.querySelector('.pc-kicker')!.textContent = c.kicker;
+    this.pitCaption.querySelector('h2')!.textContent = c.title;
+    this.pitCaption.querySelector('.pc-line')!.textContent = c.line;
+    this.pitCaption.classList.add('on');
+  }
   setFocusedClass(on: boolean) { this.app.classList.toggle('focused', on); }
   setExploded(on: boolean) {
     this.explodeBtn.setAttribute('aria-pressed', String(on));
@@ -536,6 +571,7 @@ export class UI {
   // ------------------------------------------------------------ settings
   openSettings(open: boolean, s?: Settings) {
     if (open && s) this.renderSettings(s);
+    if (open) this.sheetOpenedAt = performance.now();
     this.settingsEl.hidden = !open;
     this.handlers.onSettingsOpen(open);
   }
@@ -656,6 +692,7 @@ export class UI {
   sheet(title: string, body: string) {
     this.sheetEl.innerHTML = `<div class="sheet-head"><h2>${esc(title)}</h2><button class="icon-btn small" data-act="close" aria-label="Close">${icon('x')}</button></div><div class="sheet-body">${body}</div>`;
     this.sheetEl.querySelector('[data-act=close]')!.addEventListener('click', () => { this.settingsEl.hidden = true; });
+    this.sheetOpenedAt = performance.now();
     this.settingsEl.hidden = false;
   }
 

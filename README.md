@@ -9,18 +9,30 @@ An interactive 3D model of **Chuck Norris**, FRC Team 3950 RoboGym Robotics' 202
 | Do this | What happens |
 | --- | --- |
 | Drag one finger | Turn the robot. Drag low to see the **underside**. |
-| Pinch / two-finger drag | Zoom / move |
-| Tap a subsystem name (bottom bar) or a floating tag | Fly to it. Everything else becomes a faint hologram. |
-| **Tap any part** | Select that exact part: a motor, a roller, a Limelight. Its real specs appear when it's a known FRC part. |
-| **Tap the same part again** | Select the assembly it belongs to. Keep tapping to climb up: part → assembly → turret → subsystem. The path at the top of the card works too. |
-| **Double-tap a part** | Hide it. A "hidden" pill appears with **Undo** and **Show All**. **Isolate** on the card hides everything else. |
-| **Search** (top-right magnifying glass) | Find any part by name: "kraken", "roller", "limelight", "PDH". |
-| **Move** | Rotate each turret on its turntable, raise or lower the intake and hopper, and open the brain pan. Opening the brain pan lifts the robot and swings the camera underneath. |
+| Pinch / two-finger drag / scroll wheel | Zoom (toward your finger or cursor) / move |
+| Tap a subsystem name (bottom bar) or a floating tag | Fly to it. Everything else becomes a faint hologram. **Isolate** hides the rest. |
+| **Tap any part** | Select that exact part (a motor, a roller, a Limelight). Real specs appear for known FRC parts. |
+| **Tap the same part again** | Select the assembly it belongs to. Keep tapping to climb: part → assembly → turret → subsystem. |
+| **Hover with a mouse or trackpad** | Highlights exactly what a click would select, with a small label |
+| **Double-tap a part** | Hide it (**Undo** and **Show All** appear). **Double-tap empty space** clears the selection. |
+| **Press and hold a turret, the intake or the brain pan, then drag** | Move it directly: turrets turn on their turntables, the intake four-bar rises and drops, the brain pan swings open |
+| **Search** (top-right) | Find any part by name: "kraken", "roller", "limelight", "PDH" |
+| **Move** | Sliders for every mechanism. Opening the brain pan lifts the robot and swings the camera underneath. |
 | **Explode** | Pulls the subsystems apart |
-| **Simulate** | Chuck Norris on the 2026 REBUILT field: drives under the trench, collects FUEL, and shoots on the move into the HUB with both turrets tracking. |
-| **Press and hold "Chuck Norris"** (top-left) | Hidden **Settings**: light or dark mode, accent color, hologram strength, sounds, spin speed, labels, idle reset and quality |
+| **Simulate** | The robot on the 2026 REBUILT field. **Auto** replays the team's autonomous; **Endless** collects and scores forever. Switch views between Follow, Field and Driver. |
+| **Press and hold "Chuck Norris"** (top-left) | Hidden **Settings**: light/dark, accent color, hologram strength, sounds, spin speed, labels, pit-display delay, quality |
 
-If nobody touches it for 90 seconds (adjustable in Settings), it resets itself, so it's ready for the next judge. Everything works **offline** after the first visit, including the simulation.
+**Pit display:** after 15 seconds without a touch (adjustable), every control fades away and the robot turns slowly while each subsystem takes a turn in the spotlight with a caption. A QR code lets judges open the site on their phones. The first touch only wakes the screen.
+
+Everything works **offline** after the first visit, including the simulation.
+
+### The simulation
+
+- **Field:** the official 2026 field model (HUBs, BUMPs, TRENCHes, towers, depots, 456 staged FUEL) with a 5 cm physics grid built from the CAD.
+- **FUEL physics:** air drag and backspin lift in flight, bounces, rolling down bump slopes, collisions between every ball, walls, the HUB funnel and net, and the diffuser that pours scored fuel back into the neutral zone.
+- **Robot:** swerve drive with real acceleration and turn-rate limits, wheels that steer along their own velocity (and X-lock when stopped), chassis tilt over the bumps, A* path planning around field elements, the intake four-bar deploying, fuel physically riding in the hopper, and both turrets tracking the HUB on their turntables, firing only when on target.
+- **Auto:** starts against the left BUMP, intake up, facing the middle. It drops the intake, sweeps the neutral zone, comes back and shoots, sweeps again, and shoots (20 s).
+- **Endless:** always picks the densest reachable fuel, sweeps it up with the intake leading, scores from the alliance zone, and repeats. It was soak-tested for an hour of simulated play without stalling.
 
 ---
 
@@ -60,11 +72,12 @@ Specs for common parts (Kraken X60/X44, Limelight, PDH, MK4i, VH-109 radio and m
 
 ### Mechanisms
 
-The `mechanisms` section in `subsystems.json` defines what moves. These values were worked out from the CAD:
+The `mechanisms` section in `subsystems.json` defines what moves. These were worked out from the CAD:
 
-- **Turrets:** rotate about the center of each AndyMark 200T turntable gear. The shooter, the turret tubes and the side panels turn; the legs, base plate and Kraken X44 rotation motor stay fixed.
-- **Intake & Hopper:** pivot on the 1/2" hex shaft driven through the 26T sprocket (12T on the VersaPlanetary output, #35 chain). **Up** (−110°) is where the whole assembly fits back inside the frame perimeter. Adjust the `Up` number if the real stowed angle differs.
-- **Brain Pan:** the polycarbonate cover swings down on its four hinges, exposing the PDH and MPM mounted under the brain pan.
+- **Turrets:** rotate about the center of each AndyMark 200T turntable gear. The shooter and the turret tubes turn; the wiring side panels, legs, base plate and Kraken X44 rotation motor stay fixed to the robot.
+- **Intake & Hopper:** a **parallel four-bar**. The powered link turns on the hex hub driven by the 26T sprocket (12T on the VersaPlanetary output, #35 chain); the follower link pivots on a binding barrel 7.6 cm away. Both links are 25.4 cm, so the intake and the hopper's front wall stay upright while they rise and drop. **Up** is −73°; change that number if the real stowed angle differs.
+- **Brain Pan:** the polycarbonate cover swings down on its four hinges, exposing the PDH and MPM.
+- **Swerve modules:** the steering assembly of each MK4i turns about its center column (used by the simulation).
 
 ---
 
@@ -108,6 +121,7 @@ The field comes from the AdvantageScope 2026 field model (see below). To rebuild
 - `scripts/optimize-model.mjs` uses gltf-transform. Each part gets a numeric id stored per vertex (`_PARTID`), so the robot draws in about 40 meshes but every part can still be picked, hidden, highlighted or searched. A 64×N state texture drives visibility, focus and the hologram in the shaders. Mechanism parts are merged into pivot nodes.
 - `src/sim.ts` (loaded on demand): scripted swerve path, intake collection, ballistic shots solved for the HUB opening, and FUEL returning through the HUB exit.
 - `npm run build`: type-check plus production build. `npm test`: Playwright at 1180×820, 820×1180 and 1366×1024 with touch emulation (screenshots go to `shots/`).
+- `node scripts/simtest.mjs endless 3600`: runs an hour of the simulation headlessly and reports scoring rate, stalls and physics errors.
 - Keyboard: ← → subsystems · Esc back · R reset · / search · , settings · H hide selection.
 
 ## Credits

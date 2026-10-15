@@ -752,3 +752,26 @@ input[type='range']::-moz-range-thumb { width: 28px; height: 28px; border-radius
 .app.portrait .sim-controls .tool .label { display: none; }
 .app.portrait .sim-controls .tool { width: 46px; padding: 0; justify-content: center; }
 .app.portrait .sim-phase { min-width: 0; }
+
+/* ------------------------------------------------------------------ pit showcase */
+.pit-caption {
+  position: absolute; left: calc(var(--safe-l) + 40px); bottom: calc(var(--safe-b) + 64px);
+  max-width: min(560px, 70vw); pointer-events: none !important;
+  opacity: 0; transform: translateY(10px); transition: opacity 0.9s var(--ease), transform 0.9s var(--ease);
+}
+.pit-caption.on { opacity: 1; transform: none; }
+.pit-caption .pc-kicker { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.04em; color: var(--holo); font-weight: 600; }
+.pit-caption h2 { margin: 0; font-size: 44px; line-height: 50px; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5); }
+.pit-caption .pc-line { margin: 6px 0 0; font-size: 20px; line-height: 26px; color: var(--text-2); }
+.app.portrait .pit-caption h2 { font-size: 34px; line-height: 40px; }
+.pit-qr {
+  position: absolute; right: calc(var(--safe-r) + 28px); bottom: calc(var(--safe-b) + 28px);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 12px 10px;
+  border-radius: 18px; background: rgba(255, 255, 255, 0.94); color: #111; pointer-events: none !important;
+  opacity: 0; transition: opacity 0.8s var(--ease);
+}
+.pit-qr svg { width: 96px; height: 96px; display: block; }
+.pit-qr span { font-size: 12px; font-weight: 600; color: #333; }
+.app.pit .pit-qr { opacity: 1; }
+.app.pit.sim .pit-qr, .app.pit.sim .pit-caption { display: none; }
+.app.pit .pit-hint { left: 50%; }

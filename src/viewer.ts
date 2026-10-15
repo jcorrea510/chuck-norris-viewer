@@ -82,6 +82,8 @@ export interface Mechanism {
   states: Record<string, number> | null;
   liftRobot: number;
   unit: string;
+  /** Internal mechanisms (swerve steering) that don't get sliders. */
+  hidden: boolean;
 }
 
 export interface PinInfo { id: string; x: number; y: number; far: boolean; visible: boolean }
@@ -139,6 +141,8 @@ export class Viewer {
   reducedMotion = false;
   spinning = false;
   simActive = false;
+  /** Pit showcase: keep turning while a subsystem is highlighted. */
+  showcase = false;
   spinPeriod = robotConfig.secondsPerRevolution;
   stats = { fps: 0, calls: 0, triangles: 0, frames: 0, since: performance.now() };
 
@@ -313,7 +317,7 @@ export class Viewer {
           id: u.mechanism, name: u.name ?? u.mechanism, type: u.type === 'fourbar' ? 'fourbar' : 'rotate', nodes: [], node: o, axis,
           angle: new Damped((u.default ?? 0) * DEG, u.type === 'fourbar' ? 0.42 : 0.32),
           min: u.min ?? -180, max: u.max ?? 180, def: u.default ?? 0,
-          states: u.states ?? null, liftRobot: u.liftRobot ?? 0, unit: u.unit ?? '°',
+          states: u.states ?? null, liftRobot: u.liftRobot ?? 0, unit: u.unit ?? '°', hidden: !!u.hidden,
         };
         this.mechanisms.set(u.mechanism, m);
       }
@@ -776,7 +780,7 @@ export class Viewer {
     let active = false;
     for (const h of this.hooks) if (h(dt)) active = true;
 
-    this.spinFactor.target = this.spinning && !this.reducedMotion && !this.focusPids && !this.simActive ? 1 : 0;
+    this.spinFactor.target = this.spinning && !this.reducedMotion && (!this.focusPids || this.showcase) && !this.simActive ? 1 : 0;
     if (!this.spinning) this.spinFactor.snap(0);
     active = this.spinFactor.update(dt) || active;
     if (this.spinFactor.value > 0.0005) {

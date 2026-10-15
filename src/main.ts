@@ -76,6 +76,7 @@ const ui = new UI({
   onFullscreen: () => void toggleFullscreen(),
   onSettings: (patch) => applySettings({ ...settings, ...patch }),
   onSettingsOpen: (open) => { if (open) { touch(); sound.play('select'); } },
+  onSettingsRequest: () => ui.openSettings(true, settings),
   onResetSettings: () => { applySettings(defaults(robot.secondsPerRevolution, robot.pitModeSeconds)); ui.renderSettings(settings); },
   onSimView: () => {
     const s = state.sim;
@@ -134,7 +135,7 @@ function touch() {
 
 function mechViews(ids: string[]): MechView[] {
   const out: MechView[] = [];
-  for (const id of ids) { const m = viewer.mechanisms.get(id); if (m) out.push({ mech: m, value: viewer.mechanismAngle(id) }); }
+  for (const id of ids) { const m = viewer.mechanisms.get(id); if (m && !m.hidden) out.push({ mech: m, value: viewer.mechanismAngle(id) }); }
   return out;
 }
 
@@ -366,6 +367,7 @@ async function enterSim(mode: SimMode = 'auto') {
   if (ui.trayOpen) ui.showTray(null);
   if (state.sel) overview();
   if (state.exploded) setExploded(false);
+  if (viewer.hiddenCount()) { state.hiddenStack = []; viewer.showAll(); ui.setHidden(0, null); } // the whole robot drives
   ui.setSimMode(true);
   sound.play('focus');
   try {
@@ -617,6 +619,7 @@ function exitPit() {
   if (!state.pit) return;
   state.pit = false;
   ui.setPit(false);
+  if (pitShow.active) { pitShow.active = false; viewer.showcase = false; viewer.setFocus(null); }
   if (!state.sim) ui.showHint(true);
 }
 const wake = (e: Event) => {
@@ -630,7 +633,34 @@ window.addEventListener('pointerdown', wake, { capture: true });
 window.addEventListener('keydown', wake, { capture: true });
 window.addEventListener('wheel', wake, { capture: true, passive: false });
 
+// Pit showcase: while idle, each subsystem takes a turn in the spotlight (solid, the rest hologram)
+// with a quiet caption, then the whole robot again. Judges walking past get a self-running tour.
+const pitShow = { active: false, clock: 0, index: -1 };
+function pitShowcaseTick(dt: number) {
+  if (!state.pit || state.sim || viewer.reducedMotion || !viewer.parts) {
+    if (pitShow.active) { pitShow.active = false; viewer.showcase = false; viewer.setFocus(null); ui.pitShowcase(null); }
+    return;
+  }
+  pitShow.clock += dt;
+  const SPOT = 6, REST = 3.5;
+  if (!pitShow.active && pitShow.clock > REST) {
+    pitShow.active = true;
+    pitShow.clock = 0;
+    pitShow.index = (pitShow.index + 1) % subsystems.length;
+    const s = subsystems[pitShow.index];
+    viewer.showcase = true;
+    viewer.setFocus(viewer.subsystemPids(s.id));
+    ui.pitShowcase({ kicker: `${robot.name} · ${robot.team}`, title: s.name, line: s.highlights?.[0] ?? s.summary });
+  } else if (pitShow.active && pitShow.clock > SPOT) {
+    pitShow.active = false;
+    pitShow.clock = 0;
+    viewer.setFocus(null);
+    ui.pitShowcase(null);
+  }
+}
+
 setInterval(() => {
+  pitShowcaseTick(0.25);
   if (!state.ready || viewer.revealing) return;
   const idle = (performance.now() - state.lastInteraction) / 1000;
   if (state.idleReset && settings.pitMode > 0 && idle > settings.pitMode && !state.pit && !pointers.size && !mechDrag) enterPit();

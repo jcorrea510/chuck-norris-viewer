@@ -48,6 +48,8 @@ export class RobotSim implements RobotContact {
   /** intake four-bar angle (deg): 0 = down, -73 = up; moves at a real deploy speed */
   private intakeAngle = 0;
   private intakeClock = 0;
+  /** swerve modules: pivot (robot frame), wheel rolling heading in the CAD pose, current steer angle */
+  private modules: { id: string; px: number; pz: number; h0: number; steer: number }[] = [];
   private accel = new THREE.Vector3();
   private m = new THREE.Matrix4();
   shotsFired = 0;
@@ -68,6 +70,13 @@ export class RobotSim implements RobotContact {
       const p = mech.node.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
       this.turrets.push({ id, pivot: p, base: Math.atan2(Math.sign(p.x) * 0.8, -0.6), clock: 0, err: 1, a: 0, w: 0 });
     }
+    for (const [id, mech] of viewer.mechanisms) {
+      if (!id.startsWith('module-')) continue;
+      const p = mech.node.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+      // In the CAD the axle points away from the robot's center, so the wheel rolls tangentially.
+      const r = Math.hypot(p.x, p.z) || 1;
+      this.modules.push({ id, px: p.x, pz: p.z, h0: Math.atan2(-p.z / r, p.x / r), steer: 0 });
+    }
   }
 
   /** Snap the intake to a position (used when placing the robot). */
@@ -75,6 +84,28 @@ export class RobotSim implements RobotContact {
     this.intakeDown = down;
     this.intakeAngle = down ? 0 : -73;
     this.viewer.setMechanismNow('intake', this.intakeAngle);
+  }
+
+  /**
+   * Swerve steering: each wheel points along its own velocity (robot velocity + rotation),
+   * flipping ±90° like real modules do, and locks into an X when the robot stops.
+   */
+  private steerModules(dt: number) {
+    const c = Math.cos(this.th), s = Math.sin(this.th);
+    const vxL = this.vx * c - this.vz * s, vzL = this.vx * s + this.vz * c;
+    const moving = this.speed > 0.06 || Math.abs(this.w) > 0.12;
+    for (const m of this.modules) {
+      const mx = vxL + this.w * m.pz, mz = vzL - this.w * m.px;
+      // X-lock: roll toward the robot's center so it can't be pushed
+      const want = moving && Math.hypot(mx, mz) > 0.03 ? Math.atan2(mx, mz) : Math.atan2(m.px, m.pz);
+      let d = want - m.h0 - m.steer;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      if (d > Math.PI / 2) d -= Math.PI; else if (d < -Math.PI / 2) d += Math.PI; // reverse the wheel instead
+      const maxStep = 18 * dt;
+      m.steer += Math.max(-maxStep, Math.min(maxStep, d));
+      m.steer = Math.atan2(Math.sin(m.steer), Math.cos(m.steer));
+      this.viewer.setMechanismNow(m.id, m.steer / DEG);
+    }
   }
 
   get capacity() { return this.slots.filter((s) => this.intakeDown || !s.frontRow).length; }
@@ -133,6 +164,7 @@ export class RobotSim implements RobotContact {
       this.viewer.setMechanismNow('intake', this.intakeAngle);
     }
     for (const t of this.turrets) this.viewer.setMechanismNow(t.id, t.a / DEG);
+    this.steerModules(dt);
     this.viewer.syncPose();
     this.writePose(dt);
     this.updateHopper(dt);
@@ -359,6 +391,16 @@ export class RobotSim implements RobotContact {
     this.balls.launch(i, exit, [(lx * c + lz * s) * sp + rv[0], y * sp, (-lx * s + lz * c) * sp + rv[1]]);
     this.shotsFired++;
     this.onShot?.(i);
+  }
+
+  /** World positions of the turret exits (for the aim lines). */
+  turretExits(): THREE.Vector3[] {
+    const m = this.viewer.stage.matrixWorld;
+    const yaw = this.th + this.viewer.root.rotation.y;
+    return this.turrets.map((t) => {
+      const h = yaw + t.base + t.a;
+      return t.pivot.clone().applyMatrix4(m).add(new THREE.Vector3(Math.sin(h) * 0.11, 0.24, Math.cos(h) * 0.11));
+    });
   }
 
   turretsOnTarget() { return this.turrets.every((t) => t.err < 4 * DEG); }
