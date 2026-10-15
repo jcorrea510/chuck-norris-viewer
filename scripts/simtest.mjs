@@ -38,13 +38,25 @@ const report = await page.evaluate(async ({ seconds }) => {
       for (let i = 0; i < sim.balls.n; i++) {
         counts[st[i]]++;
         if (!Number.isFinite(pos[i * 3]) || !Number.isFinite(pos[i * 3 + 1])) nan++;
-        if (st[i] !== 6 && (Math.abs(pos[i * 3]) > 8.4 || Math.abs(pos[i * 3 + 2]) > 4.2 || pos[i * 3 + 1] < 0)) escaped++;
+        if (st[i] !== 6 && st[i] !== 2 && st[i] !== 5 && (Math.abs(pos[i * 3]) > 8.3 || Math.abs(pos[i * 3 + 2]) > 4.06 || pos[i * 3 + 1] < 0.07)) { escaped++; if (escaped < 6) out.push(`  ESCAPED ball ${i} state=${st[i]} pos=(${pos[i*3].toFixed(2)},${pos[i*3+1].toFixed(3)},${pos[i*3+2].toFixed(2)}) vel=(${sim.balls.vel[i*3].toFixed(2)},${sim.balls.vel[i*3+1].toFixed(2)},${sim.balls.vel[i*3+2].toFixed(2)})`); }
       }
       out.push(`${t.toFixed(0).padStart(5)}s scored=${String(sim.balls.scored).padStart(4)} robot=(${r.x.toFixed(2)},${r.z.toFixed(2)}) load=${String(r.load).padStart(2)} phase="${sim.brain.phase}" rest=${counts[0]} moving=${counts[1]} stored=${counts[2]} flying=${counts[3]} hub=${counts[4]}`);
       await new Promise((res) => setTimeout(res, 0));
     }
   }
   maxGap = Math.max(maxGap, seconds - gapStart);
+  // where is the fuel at the end?
+  const b = sim.balls, bins = {}, moving = [];
+  for (let i = 0; i < b.n; i++) {
+    const x = b.pos[i * 3], z = b.pos[i * 3 + 2], st = b.st[i];
+    if (st === 1) moving.push(`#${i} (${x.toFixed(2)},${b.pos[i*3+1].toFixed(3)},${z.toFixed(2)}) v=(${b.vel[i*3].toFixed(3)},${b.vel[i*3+1].toFixed(3)},${b.vel[i*3+2].toFixed(3)}) floor=${g.floor(x,z).toFixed(3)} dist=${g.distAt(x,z).toFixed(3)}`);
+    if (st !== 0) continue;
+    const zone = x < -4.24 ? 'red' : x > 4.24 ? 'blue' : x < -2.9 ? 'red-gate' : x > 2.9 ? 'blue-gate' : 'neutral';
+    const wall = g.distAt(x, z) < 0.07 ? 'wall' : g.distAt(x, z) < 0.6 ? 'near' : 'open';
+    bins[zone + '/' + wall] = (bins[zone + '/' + wall] ?? 0) + 1;
+  }
+  out.push('REST BY ZONE ' + JSON.stringify(bins));
+  out.push('MOVING ' + moving.slice(0, 6).join(' | '));
   return { out, maxGap, nan, escaped, clip, shots: sim.robot.shotsFired, scored: sim.balls.scored };
 }, { seconds });
 console.log(report.out.join('\n'));

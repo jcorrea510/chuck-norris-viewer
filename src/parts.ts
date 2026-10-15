@@ -225,7 +225,9 @@ export function kindLabel(idx: PartIndex, node: number): string {
     [/plate|panel/i, 'Plate'],
     [/sds mk4i|swerve/i, 'Swerve Module'],
   ];
-  const base = tests.find(([r]) => r.test(nm))?.[1];
+  // the last noun decides ("Shooter Servo Side Plate" is a plate, not a servo)
+  const tail: [RegExp, string][] = [[/(plate|panel)\s*(\(.*\))?$/i, 'Plate'], [/bracket$|mount$/i, 'Bracket'], [/gusset$/i, 'Gusset'], [/tube.*$/i, 'Tube'], [/spacer.*$/i, 'Spacer']];
+  const base = tail.find(([r]) => r.test(nm.trim()))?.[1] ?? tests.find(([r]) => r.test(nm))?.[1];
   if (!idx.isPart(node) && n > 1) return `${base && base !== 'Plate' ? base + ' ' : ''}Assembly · ${n} parts`;
   return base ?? 'Part';
 }

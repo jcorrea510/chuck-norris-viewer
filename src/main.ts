@@ -332,7 +332,11 @@ function setMechanism(id: string, deg: number, commit: boolean) {
       if (state.sel) setTimeout(() => viewer.frameParts(visible(selectionPids()), insets(), { azimuth: 'keep', polar: 62 * DEG }), 60);
       else viewer.frameOverview(insets(), true, false);
     }
-  } else if (commit) sound.play('toggle');
+  } else if (commit) {
+    sound.play('toggle');
+    // keep the selection framed as it moves (e.g. the intake rising)
+    if (state.sel) setTimeout(() => viewer.frameParts(visible(selectionPids()), insets(), { azimuth: 'keep', polar: 'keep' }), 40);
+  }
 }
 
 function setExploded(on: boolean) {

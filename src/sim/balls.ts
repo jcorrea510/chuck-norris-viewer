@@ -119,9 +119,10 @@ export class Balls {
         }
         vy = 0;
         y = fh + R;
-        if (sp < SLEEP_SPEED && Math.abs(sx) + Math.abs(sz) < 0.02) {
+        if (sp < SLEEP_SPEED) {
+          // settle quickly on flat carpet; on a slope only if it is wedged (not rolling for a full second)
           this.slow[i] += dt;
-          if (this.slow[i] > 0.25) { st[i] = S.REST; vx = vz = 0; }
+          if (this.slow[i] > (Math.abs(sx) + Math.abs(sz) < 0.02 ? 0.25 : 1.0)) { st[i] = S.REST; vx = vz = 0; }
         } else this.slow[i] = 0;
       } else {
         // flight: gravity + quadratic drag + backspin lift (perpendicular to velocity, upward)

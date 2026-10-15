@@ -213,15 +213,15 @@ export class Simulation {
     const c = this.viewer.controls, r = this.robot;
     if (view === 'follow') {
       c.moveTo(r.x, 0.35, r.z, animate);
-      c.dollyTo(4.4, animate);
-      c.rotateTo(r.th + Math.PI + 0.55, 58 * DEG, animate);
+      c.dollyTo(5.6, animate);
+      c.rotateTo(r.th + Math.PI + 0.5, 46 * DEG, animate);
     } else if (view === 'field') {
       c.moveTo(-1.4, 0, 0, animate);
       c.dollyTo(15.5, animate);
       c.rotateTo(-Math.PI / 2 + 0.0001, 44 * DEG, animate);
     } else {
       // the red driver station: what the drive team actually sees
-      c.setLookAt(-9.6, 1.85, -1.25, -2.2, 0.3, 0, animate);
+      c.setLookAt(-9.4, 2.6, -2.9, -1.6, 0.2, 0.4, animate);
     }
   }
 
@@ -484,7 +484,8 @@ class EndlessBrain {
     for (let i = 0; i < b.n; i++) {
       if (!b.available(i)) continue;
       const x = b.pos[i * 3], z = b.pos[i * 3 + 2];
-      if (x > 2.9 || g.distAt(x, z) < 0.07) continue;
+      // anywhere on the field (fuel drifts toward the far side over time); dense, nearby fuel wins
+      if (x > 7.7 || g.distAt(x, z) < 0.07) continue;
       if ((this.blacklist.get(i) ?? 0) > now) continue;
       cand.push({ i, d: Math.hypot(x - r.x, z - r.z) });
     }

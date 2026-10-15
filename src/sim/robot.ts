@@ -244,6 +244,14 @@ export class RobotSim implements RobotContact {
     const o = i * 3;
     balls.pos[o] += wx * (depth + 0.002);
     balls.pos[o + 2] += wz * (depth + 0.002);
+    // never shove fuel through a wall or field element: slide it along instead
+    const d = this.field.distAt(balls.pos[o], balls.pos[o + 2]);
+    if (d < R) {
+      const [ax, az] = this.field.awayFromWalls(balls.pos[o], balls.pos[o + 2]);
+      balls.pos[o] += ax * (R - d); balls.pos[o + 2] += az * (R - d);
+    }
+    balls.pos[o] = Math.max(-8.27 + R, Math.min(8.27 - R, balls.pos[o]));
+    balls.pos[o + 2] = Math.max(-4.03 + R, Math.min(4.03 - R, balls.pos[o + 2]));
     // the ball picks up the bumper's velocity at that point (including rotation) plus a little bounce
     const rx = balls.pos[o] - this.x, rz = balls.pos[o + 2] - this.z;
     const pvx = this.vx + this.w * rz, pvz = this.vz - this.w * rx;
