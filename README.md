@@ -19,7 +19,7 @@ An interactive 3D model of **Chuck Norris**, FRC Team 3950 RoboGym Robotics' 202
 | **Search** (top-right) | Find any part by name: "kraken", "roller", "limelight", "PDH" |
 | **Move** | Sliders for every mechanism. Opening the brain pan lifts the robot and swings the camera underneath. |
 | **Explode** | Pulls the subsystems apart |
-| **Simulate** | The robot on the 2026 REBUILT field. **Auto** replays the team's autonomous; **Endless** collects and scores forever. Switch views between Follow, Field and Driver. |
+| **Simulate** | The robot on the 2026 REBUILT field. **Auto** replays the team's autonomous; **Endless** collects and scores forever. Cameras: **TV** (broadcast shot that keeps the robot and where it's going in frame), **Chase** (behind the robot), **Field** (the whole field) and **Driver** (red driver station). Drag or pinch any time; the camera takes over again 4 seconds later. |
 | **Press and hold "Chuck Norris"** (top-left) | Hidden **Settings**: light/dark, accent color, hologram strength, sounds, spin speed, labels, pit-display delay, quality |
 
 **Pit display:** after 15 seconds without a touch (adjustable), every control fades away and the robot turns slowly while each subsystem takes a turn in the spotlight with a caption. A QR code lets judges open the site on their phones. The first touch only wakes the screen.
@@ -30,9 +30,11 @@ Everything works **offline** after the first visit, including the simulation.
 
 - **Field:** the official 2026 field model (HUBs, BUMPs, TRENCHes, towers, depots, 456 staged FUEL) with a 5 cm physics grid built from the CAD.
 - **FUEL physics:** air drag and backspin lift in flight, bounces, rolling down bump slopes, collisions between every ball, walls, the HUB funnel and net, and the diffuser that pours scored fuel back into the neutral zone.
-- **Robot:** swerve drive with real acceleration and turn-rate limits, wheels that steer along their own velocity (and X-lock when stopped), chassis tilt over the bumps, A* path planning around field elements, the intake four-bar deploying, fuel physically riding in the hopper, and both turrets tracking the HUB on their turntables, firing only when on target.
-- **Auto:** starts against the left BUMP, intake up, facing the middle. It drops the intake, sweeps the neutral zone, comes back and shoots, sweeps again, and shoots (20 s).
-- **Endless:** always picks the densest reachable fuel, sweeps it up with the intake leading, scores from the alliance zone, and repeats. It was soak-tested for an hour of simulated play without stalling.
+- **Robot:** swerve drive with real acceleration and turn-rate limits, wheels that steer along their own velocity (and X-lock when stopped), chassis tilt over the bumps, A* path planning around field elements, and both turrets tracking the HUB on their turntables, firing only when on target. The whole footprint, bumpers *and* the deployed intake, collides with walls and field elements, so nothing passes through a wall. Like a real swerve driver, it lines up with a trench or bump lane before it gets there and strafes in.
+- **Intake and hopper:** the full-width rollers take fuel side by side (four lanes, about 8 fuel/s each); each piece rides up over the roller and drops onto the pile. Inside the robot, fuel is its own little physics world: it piles up unevenly, sloshes when the robot brakes or turns, and the floor rollers carry it back to the indexer while shooting.
+- **Auto:** starts in the left TRENCH lane, intake up, facing the middle. It goes under the trench, drops the intake, sweeps a lane of the neutral zone, comes back under the trench and shoots, then does it again (about 75 fuel in 20 s). It never touches a BUMP.
+- **Endless:** always picks the densest reachable fuel, sweeps it up with the intake leading, scores from the alliance zone, and repeats. Every time it crosses into or out of the neutral zone it picks the trench or the bump at random (the status bar says which). Soak-tested for 10 minutes of simulated play.
+- **Smooth on laptops:** the simulation swaps in a lighter copy of the robot (`chuck-norris-sim.glb`, ~200k triangles instead of 1.1M) and lowers the shadow and pixel-ratio budget, so it stays smooth on an M1 MacBook Air.
 
 ---
 
@@ -74,9 +76,9 @@ Specs for common parts (Kraken X60/X44, Limelight, PDH, MK4i, VH-109 radio and m
 
 The `mechanisms` section in `subsystems.json` defines what moves. These were worked out from the CAD:
 
-- **Turrets:** rotate about the center of each AndyMark 200T turntable gear. The shooter and the turret tubes turn; the wiring side panels, legs, base plate and Kraken X44 rotation motor stay fixed to the robot.
+- **Turrets:** rotate about the center of each AndyMark 200T turntable gear. Only the turntable gear and the shooter on it turn; the 1×1 turret frame tubes and gussets, wiring side panels, legs, base plate and Kraken X44 rotation motor stay fixed to the robot.
 - **Intake & Hopper:** a **parallel four-bar**. The powered link turns on the hex hub driven by the 26T sprocket (12T on the VersaPlanetary output, #35 chain); the follower link pivots on a binding barrel 7.6 cm away. Both links are 25.4 cm, so the intake and the hopper's front wall stay upright while they rise and drop. **Up** is −73°; change that number if the real stowed angle differs.
-- **Brain Pan:** the polycarbonate cover swings down on its four hinges, exposing the PDH and MPM.
+- **Brain Pan:** the polycarbonate cover swings down on its four hinges, exposing the PDH and MPM. The pan and cover count as Frame (`"ownsParts": false`), so selecting **Electrical** highlights the electronics themselves (PDH, breaker, MPM, battery, radio, Limelights, RSL) and frames the camera on them (`frameOn`), with the slider still in the Electrical card.
 - **Swerve modules:** the steering assembly of each MK4i turns about its center column (used by the simulation).
 
 ---

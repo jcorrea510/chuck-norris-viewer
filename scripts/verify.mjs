@@ -187,10 +187,15 @@ for (const size of SIZES) {
   if (size.name === SIZES[0].name) {
     await tapEl(page, tool('Simulate'));
     await page.waitForFunction(() => window.__viewer.state.sim?.active, null, { timeout: 120000 });
-    await page.evaluate(() => { const sim = window.__viewer.state.sim; for (let i = 0; i < 60 * 12; i++) sim.frame(1 / 60); });
+    const bumpMax = await page.evaluate(() => { const sim = window.__viewer.state.sim; let m = 0; for (let i = 0; i < 60 * 12; i++) { sim.frame(1 / 60); m = Math.max(m, sim.grid.floor(sim.robot.x, sim.robot.z)); } return m; });
     await settle(page);
     await shot(page, size, '11-simulation');
+    check(bumpMax < 0.02, `auto never drives over a bump (max floor ${bumpMax.toFixed(3)} m)`);
     check(await page.evaluate(() => window.__viewer.state.sim.balls.scored > 0), 'auto scores fuel in the HUB');
+    for (const view of ['follow', 'field', 'driver', 'tv']) {
+      await tapEl(page, `.sim-view button[data-view=${view}]`);
+      check(await page.evaluate((v) => window.__viewer.state.sim.view === v && document.querySelector(`.sim-view button[data-view=${v}]`).getAttribute('aria-pressed') === 'true', view), `camera view ${view}`);
+    }
     await tapEl(page, '.sim-mode button[data-mode=endless]');
     await page.evaluate(() => { const sim = window.__viewer.state.sim; for (let i = 0; i < 60 * 25; i++) sim.frame(1 / 60); });
     await settle(page);

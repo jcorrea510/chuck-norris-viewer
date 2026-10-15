@@ -421,12 +421,14 @@ export class Viewer {
   private ghostBase = 1;
   private ghostScale = 1;
   setGhostStrength(v: number) { this.ghostBase = v; ghostFx.uGhostStrength.value = v * this.ghostScale; this.dirty = true; }
+  private simBudget = false;
   setQuality(q: Quality) {
     this.quality = q;
-    const cap = q === 'battery' ? 1 : q === 'balanced' ? 1.5 : 2;
+    // the simulation runs on a smaller budget (see setSimRendering)
+    const cap = q === 'battery' ? 1 : q === 'balanced' ? (this.simBudget ? 1.25 : 1.5) : 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
     this.keyLight.castShadow = q !== 'battery';
-    const ms = q === 'max' ? 4096 : 2048;
+    const ms = this.simBudget ? (q === 'max' ? 2048 : 1024) : q === 'max' ? 4096 : 2048;
     if (this.keyLight.shadow.mapSize.x !== ms) {
       this.keyLight.shadow.mapSize.set(ms, ms);
       this.keyLight.shadow.map?.dispose();
@@ -453,22 +455,9 @@ export class Viewer {
         delete m.userData.fullGeometry;
       }
     }
-    if (!lod) {
-      this.camera.fov = FOV;
-      this.setQuality(this.quality);
-      return;
-    }
-    if (fov) this.camera.fov = fov;
-    const cap = this.quality === 'battery' ? 1 : this.quality === 'balanced' ? 1.25 : 2;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
-    const ms = this.quality === 'max' ? 2048 : 1024;
-    if (this.keyLight.shadow.mapSize.x !== ms) {
-      this.keyLight.shadow.mapSize.set(ms, ms);
-      this.keyLight.shadow.map?.dispose();
-      this.keyLight.shadow.map = null;
-    }
-    this.resize(this.size.w, this.size.h);
-    this.shadowDirty = true;
+    this.simBudget = !!lod;
+    this.camera.fov = lod && fov ? fov : FOV;
+    this.setQuality(this.quality);
   }
   setFov(fov: number) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); this.dirty = true; }
 
