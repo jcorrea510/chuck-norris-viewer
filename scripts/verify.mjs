@@ -91,7 +91,10 @@ for (const size of SIZES) {
   await settle(page);
   check(await page.evaluate(() => window.__viewer.state.sel === null), 'Back returns to overview');
 
-  // Geometry: tap selects a part, tap again climbs, drag never selects, double-tap hides
+  // Geometry: tap selects a part, tap again climbs, drag never selects, double-tap hides.
+  // (Subsystem labels drift over the robot as it turns; tapping one correctly selects that
+  // subsystem, so they're hidden for this part-tapping check.)
+  await page.evaluate(() => { document.getElementById('pins').style.display = 'none'; });
   await page.waitForFunction(() => window.__viewer.viewer.pickingReady, null, { timeout: 240000 });
   let hit = await findHit(page);
   check(!!hit, 'found a point on the robot');
@@ -99,6 +102,8 @@ for (const size of SIZES) {
     await touchDrag(page, hit.x, hit.y, 140, 10);
     await settle(page);
     check(await page.evaluate(() => window.__viewer.state.sel === null), 'drag starting on the robot does not select');
+    await page.waitForTimeout(800); // subsystem labels fade back in; don't pick a spot under one
+    await settle(page);
     hit = await findHit(page);
     await page.touchscreen.tap(hit.x, hit.y);
     await page.waitForFunction(() => window.__viewer.state.sel !== null, null, { timeout: 240000 }).catch(() => {});
@@ -114,6 +119,8 @@ for (const size of SIZES) {
     await page.waitForTimeout(600);
     await page.evaluate(() => window.__viewer.api.overview());
     await settle(page, 800);
+    await page.waitForTimeout(800);
+    await settle(page);
     hit = await findHit(page);
     const before = await page.evaluate(() => { window.__viewer.state.doubleTapMs = 30000; return window.__viewer.viewer.hiddenCount(); });
     await page.touchscreen.tap(hit.x, hit.y);
@@ -130,6 +137,7 @@ for (const size of SIZES) {
     check(await page.evaluate(() => window.__viewer.viewer.hiddenCount() === 0), 'Show All restores hidden parts');
   }
 
+  await page.evaluate(() => { document.getElementById('pins').style.display = ''; });
   // Explode
   await tapEl(page, tool('Explode'));
   await settle(page);
