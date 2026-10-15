@@ -67,6 +67,7 @@ export class Simulation {
   private onUserEnd = () => { this.userActive = false; };
   private userActive = false;
   private camHeading = 0;
+  private tvSide = 1;
   private camFocus = new THREE.Vector3();
   // the robot's "brain", visualized: planned path, the fuel it is hunting, turret aim lines
   private pathLine!: THREE.Line;
@@ -128,7 +129,7 @@ export class Simulation {
       this.scoreTimes.push(this.clock);
       sound.play('score');
     };
-    const geo = new THREE.SphereGeometry(R, 14, 10);
+    const geo = new THREE.SphereGeometry(R, 12, 9);
     const mat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(0.98, 0.66, 0.05), roughness: 0.62, sheen: 0.4, sheenColor: new THREE.Color(1, 0.85, 0.4) });
     this.inst = new THREE.InstancedMesh(geo, mat, this.balls.n);
     this.inst.castShadow = true;
@@ -293,6 +294,7 @@ export class Simulation {
     this.userT = 99;
     this.camHeading = this.robot.th;
     this.camFocus.set(this.robot.x, 0, this.robot.z);
+    this.tvSide = this.robot.z > 0 ? 1 : -1;
     this.viewer.setFov(view === 'driver' ? 50 : view === 'field' ? 40 : FOV_SIM);
     this.aimCamera(0, animate);
   }
@@ -334,10 +336,14 @@ export class Simulation {
       const fx = r.x * 0.62 + this.camFocus.x * 0.38, fz = r.z * 0.62 + this.camFocus.z * 0.38;
       const spread = Math.hypot(this.camFocus.x - r.x, this.camFocus.z - r.z);
       const need = Math.max(2.6, spread * 1.25 + 1.6); // meters of field that must fit across
-      const dist = THREE.MathUtils.clamp(need / 2 / Math.tan(Math.min(hfov, vfov * 1.5) / 2), 5.5, 12);
-      const el = 38 * DEG;
-      const tx = fx, tz = fz + lift * dist * Math.tan(vfov / 2) * 0.9;
-      c.setLookAt(tx, Math.sin(el) * dist, tz - Math.cos(el) * dist, tx, 0.25, tz, animate);
+      const dist = THREE.MathUtils.clamp(need / 2 / Math.tan(Math.min(hfov, vfov * 1.5) / 2), 6.6, 12);
+      // shoot steeply from the robot's own side of the field: the HUB is never in between and the
+      // railing passes below the line of sight; switch sides only once the robot is well across
+      if (r.z < -1.4) this.tvSide = -1; else if (r.z > 1.4) this.tvSide = 1;
+      // steeper when the robot hugs the side wall, so the railing stays below it
+      const el = (55 + 15 * THREE.MathUtils.clamp((Math.abs(r.z) - 2.2) / 1.1, 0, 1)) * DEG, side = this.tvSide;
+      const tx = fx, tz = fz - side * lift * dist * Math.tan(vfov / 2) * 0.9;
+      c.setLookAt(tx, Math.sin(el) * dist, tz + side * Math.cos(el) * dist, tx, 0.25, tz, animate);
     } else if (this.view === 'follow') {
       // chase camera behind the robot's direction of travel (or its heading when it is still)
       const sp = Math.hypot(r.vx, r.vz);
@@ -363,7 +369,7 @@ export class Simulation {
       const want = new THREE.Vector3(r.x, 0.3, r.z);
       this.camFocus.lerp(want, k);
       const ez = THREE.MathUtils.clamp(this.camFocus.z * 0.35, -2.4, 2.4);
-      c.setLookAt(-9.7, 2.05, ez, this.camFocus.x * 0.85 - 1.0, 0.2, this.camFocus.z * 0.8, animate);
+      c.setLookAt(-8.45, 2.25, ez, this.camFocus.x * 0.85 - 0.8, 0.2, this.camFocus.z * 0.8, animate);
     }
   }
 

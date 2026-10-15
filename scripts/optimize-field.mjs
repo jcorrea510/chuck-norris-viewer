@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO, Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
-import { weld, simplifyPrimitive, meshopt, prune, dedup } from '@gltf-transform/functions';
+import { weld, compactPrimitive, meshopt, prune, dedup } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
@@ -22,7 +22,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'cad', 'field');
 const OUT = path.join(ROOT, 'public', 'field');
 const SKIP = /\bPEM\b|rivet|screw|bolt|\bnut\b|washer|bearing|connector pin|gas spring|thread|standoff|shoulder|spacer|e-clip|zip tie/i;
-const SIMPLIFY_M = 0.004; // fields are viewed from meters away; 4 mm is invisible
+const SIMPLIFY_M = 0.006; // fields are viewed from meters away; 6 mm is invisible
 const MIN_PART_M = 0.04;  // parts smaller than this vanish at field scale
 
 await MeshoptDecoder.ready; await MeshoptEncoder.ready; await MeshoptSimplifier.ready;
@@ -150,7 +150,13 @@ await doc.transform(weld());
 for (const mesh of doc.getRoot().listMeshes()) for (const prim of mesh.listPrimitives()) {
   const a = prim.getAttribute('POSITION'); const mn = a.getMin([]), mx = a.getMax([]);
   const extent = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
-  simplifyPrimitive(prim, { simplifier: MeshoptSimplifier, ratio: 0, error: SIMPLIFY_M / extent });
+  // absolute error; Prune drops small disconnected pieces; big merged meshes get a sloppy pass too
+  // (attribute seams stop the regular simplifier early). The field is seen from meters away.
+  const P = a.getArray();
+  let idx = MeshoptSimplifier.simplify(new Uint32Array(prim.getIndices().getArray()), P, 3, 0, SIMPLIFY_M, ['ErrorAbsolute', 'Prune'])[0];
+  if (idx.length > 60000) idx = MeshoptSimplifier.simplifySloppy(idx, P, 3, null, Math.floor(idx.length * 0.45 / 3) * 3, (SIMPLIFY_M * 1.5) / extent)[0];
+  prim.setIndices(doc.createAccessor().setType('SCALAR').setArray(new Uint32Array(idx)).setBuffer(prim.getIndices().getBuffer()));
+  compactPrimitive(prim);
 }
 await doc.transform(dedup(), prune());
 let tris = 0;

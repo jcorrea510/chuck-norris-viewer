@@ -25,7 +25,7 @@ const OUT_PARTS = path.join(ROOT, 'public', 'models', 'chuck-norris.parts.json')
 // Low-detail copy for the simulation (same nodes and part ids, far fewer triangles): the robot is
 // small on screen there, and the field + fuel + shadows need the GPU budget on an M1 MacBook Air.
 const OUT_SIM = path.join(ROOT, 'public', 'models', 'chuck-norris-sim.glb');
-const SIM_ERRORS_M = [0.004, 0.007, 0.01];
+const SIM_ERRORS_M = [0.003, 0.005, 0.008];
 const SIM_TRI_BUDGET = 200_000;
 const CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'subsystems.json'), 'utf8'));
 const INSPECT = process.argv.includes('--inspect');
@@ -469,7 +469,14 @@ async function main() {
         for (let t = 0; t < idx.length; t += 3) if (!hardwarePid[pidA[idx[t]]]) keep.push(idx[t], idx[t + 1], idx[t + 2]);
         let out = new Uint32Array(keep);
         // absolute error; Prune drops small disconnected pieces entirely
-        if (out.length) out = MeshoptSimplifier.simplify(out, pos instanceof Float32Array ? pos : new Float32Array(pos), 3, 0, simplifyError, ['ErrorAbsolute', 'Prune'])[0];
+        const P = pos instanceof Float32Array ? pos : new Float32Array(pos);
+        if (out.length) out = MeshoptSimplifier.simplify(out, P, 3, 0, simplifyError, ['ErrorAbsolute', 'Prune'])[0];
+        // attribute seams stop the regular simplifier early; at field scale a sloppy pass is invisible
+        if (out.length > 3000) {
+          const a = prim.getAttribute('POSITION'), mn = a.getMin([]), mx = a.getMax([]);
+          const extent = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
+          out = MeshoptSimplifier.simplifySloppy(out, P, 3, null, Math.floor(out.length * 0.3 / 3) * 3, simplifyError / extent)[0];
+        }
         if (!out.length) out = new Uint32Array([0, 0, 0]); // keep every mesh so names still line up
         prim.setIndices(doc.createAccessor().setType('SCALAR').setArray(new Uint32Array(out)).setBuffer(buffer));
         compactPrimitive(prim);
