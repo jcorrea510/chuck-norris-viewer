@@ -371,7 +371,7 @@ button:disabled { opacity: 0.4; }
   border-left: 1.5px solid var(--holo);
   background: linear-gradient(90deg, color-mix(in srgb, var(--holo) 16%, transparent), transparent);
   white-space: nowrap;
-  max-width: 320px;
+  max-width: 400px;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
@@ -379,6 +379,8 @@ button:disabled { opacity: 0.4; }
   transition: opacity 0.35s var(--ease);
 }
 .bracket-label.on { opacity: 1; }
+.bracket-label b { display: block; font-weight: 600; }
+.bracket-label span { display: block; font-size: 11px; line-height: 15px; font-weight: 500; opacity: 0.8; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 
 /* ------------------------------------------------------------------ panel */
 .panel {

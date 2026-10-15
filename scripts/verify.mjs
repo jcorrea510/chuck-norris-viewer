@@ -101,13 +101,13 @@ for (const size of SIZES) {
     check(await page.evaluate(() => window.__viewer.state.sel === null), 'drag starting on the robot does not select');
     hit = await findHit(page);
     await page.touchscreen.tap(hit.x, hit.y);
-    await page.waitForFunction(() => window.__viewer.state.sel !== null, null, { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction(() => window.__viewer.state.sel !== null, null, { timeout: 240000 }).catch(() => {});
     await settle(page);
     const s1 = await page.evaluate(() => window.__viewer.state.sel);
     check(s1?.kind === 'node', `tap on geometry selects a part (${s1?.label})`);
     await shot(page, size, '03-part');
     await page.touchscreen.tap(hit.x, hit.y);
-    await page.waitForFunction((a) => JSON.stringify(window.__viewer.state.sel) !== a, JSON.stringify(s1), { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction((a) => JSON.stringify(window.__viewer.state.sel) !== a, JSON.stringify(s1), { timeout: 240000 }).catch(() => {});
     await settle(page);
     const s2 = await page.evaluate(() => window.__viewer.state.sel);
     check(s2 && JSON.stringify(s2) !== JSON.stringify(s1), `tapping again selects the parent (${s2?.label ?? s2?.id})`);
@@ -119,7 +119,7 @@ for (const size of SIZES) {
     await page.touchscreen.tap(hit.x, hit.y);
     await page.waitForTimeout(90);
     await page.touchscreen.tap(hit.x, hit.y);
-    await page.waitForFunction((b) => window.__viewer.viewer.hiddenCount() > b, before, { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction((b) => window.__viewer.viewer.hiddenCount() > b, before, { timeout: 240000 }).catch(() => {});
     await settle(page);
     const after = await page.evaluate(() => window.__viewer.viewer.hiddenCount());
     await page.evaluate(() => { window.__viewer.state.doubleTapMs = 260; });

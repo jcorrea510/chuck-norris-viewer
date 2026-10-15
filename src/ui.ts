@@ -645,7 +645,7 @@ export class UI {
     }
   }
 
-  updateBrackets(r: { x: number; y: number; w: number; h: number } | null, label: string | null) {
+  updateBrackets(r: { x: number; y: number; w: number; h: number } | null, label: string | null, dims: string | null = null) {
     const svg = this.brackets;
     if (!r || !label) { svg.classList.remove('on'); this.bracketLabel.classList.remove('on'); return; }
     const pad = 14;
@@ -655,8 +655,8 @@ export class UI {
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = `<path d="M${x} ${y + L}V${y}H${x + L} M${x + w - L} ${y}H${x + w}V${y + L} M${x + w} ${y + hh - L}V${y + hh}H${x + w - L} M${x + L} ${y + hh}H${x}V${y + hh - L}"/>`;
     svg.classList.add('on');
-    this.bracketLabel.textContent = label;
-    const lx = Math.min(Math.max(x, 12), W - 220), ly = Math.max(y - 30, 8);
+    this.bracketLabel.innerHTML = `<b>${esc(label)}</b>${dims ? `<span>${dims}</span>` : ''}`;
+    const lx = Math.min(Math.max(x, 12), W - 260), ly = Math.max(y - (dims ? 46 : 30), 8);
     this.bracketLabel.style.transform = `translate3d(${lx}px, ${ly}px, 0)`;
     this.bracketLabel.classList.add('on');
   }

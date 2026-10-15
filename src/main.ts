@@ -429,6 +429,8 @@ function mechanismOfHit(hit: Hit): string | null {
 
 canvas.addEventListener('pointerdown', (e) => {
   touch();
+  // a new primary pointer starts a fresh gesture: forget any finger whose "up" event never arrived
+  if (e.isPrimary) pointers.clear();
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   ui.hoverTip(null);
   if (state.sim) return;
@@ -691,7 +693,10 @@ let lastSync = 0;
 viewer.onRender = () => {
   ui.updatePins(viewer.pins(), state.ready && !state.sel && !viewer.revealing && settings.labels && !state.sim && !viewer.lifted);
   const label = state.sel ? (state.sel.kind === 'sub' ? subsystemById.get(state.sel.id)!.name : state.sel.label) : null;
-  ui.updateBrackets(state.sim ? null : viewer.focusRect(), label);
+  const d = state.sel ? viewer.focusDims() : null;
+  const fmt = (m: number) => (m / 0.0254).toFixed(1);
+  const dims = d ? `${fmt(d.w)} × ${fmt(d.l)} × ${fmt(d.h)} in  ·  ${Math.round(d.w * 1000)} × ${Math.round(d.l * 1000)} × ${Math.round(d.h * 1000)} mm` : null;
+  ui.updateBrackets(state.sim ? null : viewer.focusRect(), label, dims);
   const now = performance.now();
   if (now - lastSync > 80) {
     lastSync = now;

@@ -735,6 +735,16 @@ export class Viewer {
     return out;
   }
 
+  /** Size (m) of the focused parts' box, in the robot's own axes: width (x), length (z), height (y). */
+  focusDims(): { w: number; l: number; h: number } | null {
+    if (!this.focusPids || !this.focusPids.length || !this.parts) return null;
+    const b = new THREE.Box3();
+    this.parts.boxOfParts(this.focusPids, b);
+    if (b.isEmpty()) return null;
+    const v = b.getSize(new THREE.Vector3());
+    return { w: v.x, l: v.z, h: v.y };
+  }
+
   /** Screen rectangle (CSS px) around the focused parts, for the targeting brackets. */
   focusRect(): { x: number; y: number; w: number; h: number } | null {
     if (!this.focusPids || !this.focusPids.length) return null;
