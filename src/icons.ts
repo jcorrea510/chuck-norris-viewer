@@ -15,6 +15,7 @@ import chevronRight from 'lucide-static/icons/chevron-right.svg?raw';
 import pointer from 'lucide-static/icons/pointer.svg?raw';
 import circleCheck from 'lucide-static/icons/circle-check.svg?raw';
 import cog from 'lucide-static/icons/cog.svg?raw';
+import i_settings from 'lucide-static/icons/settings.svg?raw';
 import cpu from 'lucide-static/icons/cpu.svg?raw';
 import gauge from 'lucide-static/icons/gauge.svg?raw';
 import target from 'lucide-static/icons/target.svg?raw';
@@ -35,7 +36,7 @@ import i_eye from 'lucide-static/icons/eye.svg?raw';
 const ICONS: Record<string, string> = {
   move, 'arrow-down-to-line': arrowDownToLine, layers, crosshair, zap, box, house,
   'square-play': squarePlay, boxes, maximize, minimize, 'chevron-left': chevronLeft,
-  'chevron-right': chevronRight, pointer, 'circle-check': circleCheck, cog, cpu, gauge,
+  'chevron-right': chevronRight, pointer, 'circle-check': circleCheck, cog, settings: i_settings, cpu, gauge,
   target, wrench, camera, battery, x,
   'search': i_search,
   'rotate-3d': i_rotate_3d,

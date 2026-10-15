@@ -122,7 +122,7 @@ export class UI {
     // Title (content layer, not glass). Press and hold opens the hidden settings.
     this.title = h('div', 'title', `<h1>${esc(robot.name)}</h1><p>${esc(robot.team)}</p>`);
     this.title.setAttribute('role', 'button');
-    this.title.setAttribute('aria-label', `${robot.name}. Press and hold for settings.`);
+    this.title.setAttribute('aria-label', `${robot.name}. Press and hold for settings.`); // (also the gear, top right)
     this.layer.append(this.title);
     this.longPress(this.title, () => handlers.onSettingsRequest());
 
@@ -130,7 +130,9 @@ export class UI {
     const corner = h('div', 'corner glass');
     this.searchBtn = this.iconButton('search', 'Search parts', () => this.openSearch(true));
     this.fsBtn = this.iconButton('maximize', 'Enter full screen', () => handlers.onFullscreen());
-    corner.append(this.searchBtn, this.fsBtn);
+    const settingsBtn = this.iconButton('settings', 'Settings', () => handlers.onSettingsRequest());
+    settingsBtn.classList.add('settings-btn');
+    corner.append(this.searchBtn, settingsBtn, this.fsBtn);
     this.layer.append(corner);
 
     // Search
@@ -218,6 +220,7 @@ export class UI {
         </div>
         <div class="dock-sep"></div>
         <button class="tool" data-act="restart">${icon('rotate-ccw')}<span class="label">Restart</span></button>
+        <button class="tool icon-only" data-act="settings" aria-label="Settings" title="Settings">${icon('settings')}</button>
         <button class="tool" data-act="exit">${icon('x')}<span class="label">Exit</span></button>
       </div>
       <div class="sim-result glass" hidden>
@@ -231,6 +234,7 @@ export class UI {
     this.simHud.querySelectorAll<HTMLButtonElement>('.sim-view button').forEach((b) => b.addEventListener('click', () => handlers.onSimView(b.dataset.view as SimView)));
     this.simHud.querySelector('[data-act=restart]')!.addEventListener('click', () => handlers.onSimRestart());
     this.simHud.querySelector('[data-act=exit]')!.addEventListener('click', () => handlers.onSimExit());
+    this.simHud.querySelector('[data-act=settings]')!.addEventListener('click', () => handlers.onSettingsRequest());
     this.simHud.querySelector('[data-act=replay]')!.addEventListener('click', () => handlers.onSimMode('auto'));
     this.simHud.querySelector('[data-act=endless]')!.addEventListener('click', () => handlers.onSimMode('endless'));
     this.simHud.querySelectorAll<HTMLButtonElement>('.sim-mode button').forEach((b) => b.addEventListener('click', () => handlers.onSimMode(b.dataset.mode as SimMode)));

@@ -780,3 +780,6 @@ input[type='range']::-moz-range-thumb { width: 28px; height: 28px; border-radius
 .app.pit .pit-qr { opacity: 1; }
 .app.pit.sim .pit-qr, .app.pit.sim .pit-caption { display: none; }
 .app.pit .pit-hint { left: 50%; }
+
+/* settings gear: always visible, top right (also in the simulation bar) */
+.sim-controls .tool.icon-only { width: 46px; padding: 0; justify-content: center; }

@@ -86,6 +86,8 @@ function mechanismFor(names, cadBox) {
     const c = cadBox.lo.map((v, k) => (v + cadBox.hi[k]) / 2);
     const nearAxis = (pv, r) => Math.hypot(c[1] - pv[1], c[2] - pv[2]) < r; // axis is X
     const leaf = lower.slice(-2).join(' ');
+    // hinged parts riding on the coupler (the kicker ramp swings clear of the bumper)
+    if ((m.swivel?.parts ?? []).some((x) => leaf.includes(x.toLowerCase()))) return { mech: m, role: 'swivel' };
     if ((m.crank ?? []).some((x) => leaf.includes(x.toLowerCase())) || nearAxis(m.pivot, 0.045)) return { mech: m, role: 'crank' };
     if ((m.followerLinks ?? []).some((x) => leaf.includes(x.toLowerCase())) || nearAxis(m.follower, 0.03)) return { mech: m, role: 'follower' };
     return { mech: m, role: 'coupler' };
@@ -280,6 +282,9 @@ async function main() {
       const mech = hit?.mech ?? null;
       const sub = mech && mech.ownsParts !== false ? mech.subsystem ?? sub0 : sub0;
       for (const mm of mechanisms) {
+        if (mm.swivel?.hingePart && !pivots.has(mm.id + '#swivel') && here.some((h) => clean(h).toLowerCase().includes(mm.swivel.hingePart.toLowerCase()))) {
+          pivots.set(mm.id + '#swivel', cadBox.lo.map((v, k) => (v + cadBox.hi[k]) / 2));
+        }
         if (mm.pivotPart && !pivots.has(mm.id) && mm.pivotPart.every((p) => here.some((h) => clean(h).toLowerCase().includes(p.toLowerCase())))) {
           pivots.set(mm.id, cadBox.lo.map((v, k) => (v + cadBox.hi[k]) / 2));
         }
@@ -334,7 +339,7 @@ async function main() {
     console.log(`${m.name.padEnd(18)} ${String(mechCount.get(m.id)).padStart(4)} parts  pivot ${pv ? pv.map((v) => v.toFixed(4)).join(', ') : 'NOT FOUND'}  axis ${m.axis.join(',')}`);
     if (!pv) throw new Error(`Mechanism ${m.id}: pivot not found`);
     if (!mechCount.get(m.id)) throw new Error(`Mechanism ${m.id}: no parts matched`);
-    if (m.type === 'fourbar') for (const role of ['crank', 'follower', 'coupler']) {
+    if (m.type === 'fourbar') for (const role of ['crank', 'follower', 'coupler', 'swivel']) {
       const nmap = roleNames.get(`${m.id}#${role}`) ?? new Map();
       const n = [...nmap.values()].reduce((a, b) => a + b, 0);
       console.log(`   ${role.padEnd(9)} ${String(n).padStart(4)} parts: ${[...nmap.entries()].filter(([k]) => role !== 'coupler' || !HARDWARE.test(k)).slice(0, role === 'coupler' ? 6 : 12).map(([k, v]) => v > 1 ? `${k} ×${v}` : k).join(', ')}`);
@@ -405,6 +410,7 @@ async function main() {
     pivot: toOut(m.pivot ?? pivots.get(m.id)),
     follower: m.follower ? toOut(m.follower) : null,
     link: m.couplerJoint ? vecOut(m.couplerJoint.map((v, k) => v - m.pivot[k])) : null,
+    swivel: pivots.has(m.id + '#swivel') ? toOut(pivots.get(m.id + '#swivel')) : null,
     axis: rot(m.axis),
   }]));
 
@@ -444,7 +450,7 @@ async function main() {
         const def = mechanisms.find((m) => m.id === id);
         const out = mechOut.get(id);
         // rotate / crank turn about the pivot, follower about its own pivot, coupler only translates
-        const pivot = role === 'follower' ? out.follower : role === 'coupler' ? [0, 0, 0] : out.pivot;
+        const pivot = role === 'follower' ? out.follower : role === 'coupler' ? [0, 0, 0] : role === 'swivel' ? out.swivel : out.pivot;
         const pivotNode = doc.createNode(`mechanism:${mech}`).setTranslation(pivot).setExtras({
           mechanism: id, role, type: def.type ?? 'rotate', name: def.name, axis: out.axis, link: out.link,
           min: def.min, max: def.max, default: def.default ?? 0,
@@ -470,9 +476,11 @@ async function main() {
         let out = new Uint32Array(keep);
         // absolute error; Prune drops small disconnected pieces entirely
         const P = pos instanceof Float32Array ? pos : new Float32Array(pos);
-        if (out.length) out = MeshoptSimplifier.simplify(out, P, 3, 0, simplifyError, ['ErrorAbsolute', 'Prune'])[0];
+        // bumpers keep their shape and their team numbers (small separate pieces Prune would delete)
+        const fabric = (prim.getMaterial()?.getName() ?? '') === 'fabric';
+        if (out.length) out = MeshoptSimplifier.simplify(out, P, 3, 0, fabric ? 0.0008 : simplifyError, fabric ? ['ErrorAbsolute'] : ['ErrorAbsolute', 'Prune'])[0];
         // attribute seams stop the regular simplifier early; at field scale a sloppy pass is invisible
-        if (out.length > 3000) {
+        if (out.length > 3000 && !fabric) {
           const a = prim.getAttribute('POSITION'), mn = a.getMin([]), mx = a.getMax([]);
           const extent = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
           out = MeshoptSimplifier.simplifySloppy(out, P, 3, null, Math.floor(out.length * 0.3 / 3) * 3, simplifyError / extent)[0];

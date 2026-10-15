@@ -62,8 +62,12 @@ interface Sub {
 
 export interface MechNode {
   node: THREE.Object3D;
-  role: 'rotate' | 'crank' | 'follower' | 'coupler';
+  role: 'rotate' | 'crank' | 'follower' | 'coupler' | 'swivel';
   axis: THREE.Vector3;
+  /** swivel: outline points relative to the hinge (rest pose) and the last solved angle */
+  samples?: THREE.Vector3[];
+  swivelKey?: number;
+  swivelAngle?: number;
   link: THREE.Vector3 | null; // crank pivot → coupler joint (four-bar)
   restQ: THREE.Quaternion;
   restP: THREE.Vector3;
@@ -337,6 +341,28 @@ export class Viewer {
       }
     }
 
+    // Swivel parts (the kicker ramp hangs on a hinge on the intake): sample their outline around the
+    // hinge, and find the bumper they have to ride over.
+    this.root.updateMatrixWorld(true);
+    const invRoot = this.root.matrixWorld.clone().invert();
+    for (const m of this.mechanisms.values()) for (const n of m.nodes) {
+      if (n.role !== 'swivel') continue;
+      const pts: THREE.Vector3[] = [];
+      n.node.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || mesh.userData.ghost) return;
+        const mw = invRoot.clone().multiply(mesh.matrixWorld);
+        const pos = mesh.geometry.attributes.position;
+        const step = Math.max(1, Math.floor(pos.count / 400));
+        for (let i = 0; i < pos.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mw).sub(n.restP));
+      });
+      n.samples = pts;
+    }
+    if (this.parts) {
+      const bp = this.parts.partsMatching(['Red Bumper', 'Blue Bumper']);
+      if (bp.length) this.bumperBox = this.parts.boxOfParts(bp);
+    }
+
     this.root.rotation.y = this.frontRotation();
     this.root.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.root);
@@ -544,10 +570,49 @@ export class Viewer {
         if (n.role === 'coupler') {
           // parallel four-bar: the coupler translates along the arc of the crank's far joint, without rotating
           if (n.link) n.node.position.copy(n.restP).add(v.copy(n.link).applyQuaternion(q).sub(n.link));
+        } else if (n.role === 'swivel') {
+          // rides on the coupler, and swings on its own hinge just enough to clear the bumper
+          if (n.link) v.copy(n.link).applyQuaternion(q).sub(n.link); else v.set(0, 0, 0);
+          n.node.position.copy(n.restP).add(v);
+          if (n.swivelKey !== angles[i]) { n.swivelKey = angles[i]; n.swivelAngle = this.solveSwivel(n, n.node.position); }
+          n.node.quaternion.copy(n.restQ).multiply(q.setFromAxisAngle(n.axis, n.swivelAngle ?? 0));
         } else n.node.quaternion.copy(n.restQ).multiply(q);
       }
     });
     this.stage.updateMatrixWorld(true);
+  }
+
+  private bumperBox: THREE.Box3 | null = null;
+  /** Smallest hinge angle that keeps every point of the swivel part out of the bumper. */
+  private solveSwivel(n: MechNode, hinge: THREE.Vector3): number {
+    const b = this.bumperBox, pts = n.samples;
+    if (!b || !pts?.length) return 0;
+    const q = new THREE.Quaternion(), p = new THREE.Vector3();
+    // in the CAD the ramp just kisses the bumper face; only real interference makes it swing
+    const pad = -0.004;
+    const overlap = (phi: number) => {
+      q.setFromAxisAngle(n.axis, phi);
+      let worst = 0;
+      for (const r of pts) {
+        p.copy(r).applyQuaternion(q).add(hinge);
+        if (Math.abs(p.x) > b.max.x || p.z < b.min.z || p.y > b.max.y + pad || p.z > b.max.z + pad) continue;
+        worst = Math.max(worst, Math.min(b.max.y + pad - p.y, b.max.z + pad - p.z));
+      }
+      return worst;
+    };
+    if (overlap(0) === 0) return 0;
+    // swing the free end forward (away from the robot), whichever sign that is about this axis
+    let lowest = pts[0];
+    for (const r of pts) if (r.y < lowest.y) lowest = r;
+    const fwd = p.copy(lowest).applyQuaternion(q.setFromAxisAngle(n.axis, 0.1)).z > lowest.z ? 1 : -1;
+    let best = 0, bestO = Infinity;
+    for (let k = 1; k <= 75; k++) {
+      const phi = fwd * k * 2 * DEG;
+      const o = overlap(phi);
+      if (o === 0) return phi;
+      if (o < bestO) { bestO = o; best = phi; }
+    }
+    return best;
   }
 
   robotBox(): THREE.Box3 {

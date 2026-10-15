@@ -511,9 +511,44 @@ export class Simulation {
     // the user can orbit and zoom any time; the camera takes over again a few seconds later
     if (this.userActive) { this.userT = 0; return; }
     this.userT += dt;
+    if (this.autoOrbit) { this.direct(dt); return; }
+    if (this.directing) { this.directing = false; this.setView(this.view); return; }
     if (this.userT < USER_HOLD) return;
-    if (this.autoOrbit && this.view === 'field') { this.viewer.controls.rotate(dt * 0.05, 0, false); return; }
     this.aimCamera(dt, true);
+  }
+
+  // ------------------------------------------------------------------ pit display director
+  // Left alone, the simulation plays like a broadcast: it cycles shots every few seconds (a slow orbit
+  // around the robot, the TV camera, a low chase and a high crane shot) and keeps the robot playing.
+  private directing = false;
+  private shotT = 0;
+  private shot = 0;
+  private orbitAz = 0;
+  private direct(dt: number) {
+    const c = this.viewer.controls, r = this.robot;
+    if (!this.directing) { this.directing = true; this.shotT = 0; this.shot = 0; this.orbitAz = r.th + Math.PI * 0.75; this.viewer.setFov(FOV_SIM); }
+    this.shotT += dt;
+    const LEN = [11, 9, 8, 10];
+    if (this.shotT > LEN[this.shot]) { this.shotT = 0; this.shot = (this.shot + 1) % LEN.length; }
+    const y = this.field.floor(r.x, r.z);
+    if (this.shot === 0) {
+      // slow orbit close to the robot, low enough to see the turrets and the hopper
+      this.orbitAz += dt * 0.22;
+      const d = 3.6, el = 22 * DEG;
+      c.setLookAt(r.x + Math.sin(this.orbitAz) * Math.cos(el) * d, y + 0.35 + Math.sin(el) * d, r.z + Math.cos(this.orbitAz) * Math.cos(el) * d, r.x, y + 0.35, r.z, true);
+    } else if (this.shot === 1) {
+      const v = this.view; this.view = 'tv'; this.aimCamera(dt, true); this.view = v;
+    } else if (this.shot === 2) {
+      const v = this.view; this.view = 'follow'; this.aimCamera(dt, true); this.view = v;
+    } else {
+      // high crane shot drifting around the robot, the HUB and fuel in frame
+      this.orbitAz += dt * 0.06;
+      const d = 9, el = 48 * DEG;
+      const tx = r.x * 0.7 + this.hub.cx * 0.3, tz = r.z * 0.7;
+      c.setLookAt(tx + Math.sin(this.orbitAz) * Math.cos(el) * d, Math.sin(el) * d, tz + Math.cos(this.orbitAz) * Math.cos(el) * d, tx, 0.3, tz, true);
+    }
+    // Auto ends after 20 s; the pit display keeps playing Endless
+    if (this.brain instanceof AutoBrain && this.brain.ended && this.brain.t > AUTO_SECONDS + 4) this.setMode('endless');
   }
 
   private writeInstances() {
@@ -643,7 +678,7 @@ class AutoBrain {
   }
 
   update(dt: number) {
-    if (this.ended) { this.sim.robot.aimAndFire(dt, false); return; }
+    if (this.ended) { this.t += dt; this.sim.robot.aimAndFire(dt, false); return; }
     this.t += dt;
     this.stepT += dt;
     const r = this.sim.robot;

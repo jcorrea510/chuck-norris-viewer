@@ -20,9 +20,9 @@ An interactive 3D model of **Chuck Norris**, FRC Team 3950 RoboGym Robotics' 202
 | **Move** | Sliders for every mechanism. Opening the brain pan lifts the robot and swings the camera underneath. |
 | **Explode** | Pulls the subsystems apart |
 | **Simulate** | The robot on the 2026 REBUILT field. **Auto** replays the team's autonomous; **Endless** collects and scores forever. Cameras: **TV** (broadcast shot that keeps the robot and where it's going in frame), **Chase** (behind the robot), **Field** (the whole field) and **Driver** (red driver station). Drag or pinch any time; the camera takes over again 4 seconds later. |
-| **Press and hold "Chuck Norris"** (top-left) | Hidden **Settings**: light/dark, accent color, hologram strength, sounds, spin speed, labels, pit-display delay, quality |
+| **Gear button** (top-right, also in the simulation bar), or press and hold "Chuck Norris" | **Settings**: light/dark, accent color, hologram strength, sounds, spin speed, labels, pit-display delay, quality |
 
-**Pit display:** after 15 seconds without a touch (adjustable), every control fades away and the robot turns slowly while each subsystem takes a turn in the spotlight with a caption. A QR code lets judges open the site on their phones. The first touch only wakes the screen.
+**Pit display:** in the simulation, it turns into a broadcast: a slow orbit around the robot, the TV camera, a chase shot and a high crane shot, with a lower-third showing the score (Auto rolls into Endless so it never stops). Otherwise, after 15 seconds without a touch (adjustable), every control fades away and the robot turns slowly while each subsystem takes a turn in the spotlight with a caption. A QR code lets judges open the site on their phones. The first touch only wakes the screen.
 
 Everything works **offline** after the first visit, including the simulation.
 
@@ -77,8 +77,8 @@ Specs for common parts (Kraken X60/X44, Limelight, PDH, MK4i, VH-109 radio and m
 The `mechanisms` section in `subsystems.json` defines what moves. These were worked out from the CAD:
 
 - **Turrets:** rotate about the center of each AndyMark 200T turntable gear. Only the turntable gear and the shooter on it turn; the 1×1 turret frame tubes and gussets, wiring side panels, legs, base plate and Kraken X44 rotation motor stay fixed to the robot.
-- **Intake & Hopper:** a **parallel four-bar**. The powered link turns on the hex hub driven by the 26T sprocket (12T on the VersaPlanetary output, #35 chain); the follower link pivots on a binding barrel 7.6 cm away. Both links are 25.4 cm, so the intake and the hopper's front wall stay upright while they rise and drop. **Up** is −73°; change that number if the real stowed angle differs.
-- **Brain Pan:** the polycarbonate cover swings down on its four hinges, exposing the PDH and MPM. The pan and cover count as Frame (`"ownsParts": false`), so selecting **Electrical** highlights the electronics themselves (PDH, breaker, MPM, battery, radio, Limelights, RSL) and frames the camera on them (`frameOn`), with the slider still in the Electrical card.
+- **Intake & Hopper:** a **parallel four-bar**. The powered link turns on the hex hub driven by the 26T sprocket (12T on the VersaPlanetary output, #35 chain); the follower link pivots on a binding barrel 7.6 cm away. Both links are 25.4 cm, so the intake and the hopper's front wall stay upright while they rise and drop. The **kicker ramp** hangs on the secondary roller shaft and swings forward to ride over the bumper as the intake lifts, then hangs straight again (`swivel` in the config). **Up** is −73°; change that number if the real stowed angle differs.
+- **Brain Pan:** the polycarbonate cover swings down on its four hinges, exposing the PDH and MPM. The pan and cover count as Frame (`"ownsParts": false`), so selecting **Electrical** frames the camera on the electronics from underneath the robot (`frameOn`, `camera.elevation: -30`) while the brain pan cover stays highlighted too (`includeMechanisms`), so you can watch it open and close with the slider in the Electrical card.
 - **Swerve modules:** the steering assembly of each MK4i turns about its center column (used by the simulation).
 
 ---

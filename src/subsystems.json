@@ -4,8 +4,8 @@
     "highlights: 3-4 very short bullets (about five words each). specs: label/value pairs.",
     "robot.front: which way the robot faces at the start. \"auto\" points the intake at the viewer; or use +x, -x, +z, -z.",
     "match: words from Onshape sub-assembly or part names. Parts that match nothing go to Frame & Structure.",
-    "hideWhenFocused: parts hidden while that subsystem is selected (e.g. panels that block the view). frameOn: parts the camera centers on when the subsystem is selected (default: all of them).",
-    "mechanisms: moving parts (CAD coordinates in meters). \"fourbar\" = parallel four-bar: crank pivot, follower pivot and the crank's far joint. ownsParts: false keeps the moving parts in their own subsystem (the brain pan cover stays Frame, its slider shows under Electrical). After changing, run: npm run model"
+    "hideWhenFocused: parts hidden while that subsystem is selected (e.g. panels that block the view). frameOn: parts the camera centers on when the subsystem is selected (default: all of them). includeMechanisms: moving parts shown solid with this subsystem even though they belong to another (the brain pan cover with Electrical).",
+    "mechanisms: moving parts (CAD coordinates in meters). \"fourbar\" = parallel four-bar: crank pivot, follower pivot and the crank's far joint. swivel: parts hinged on the four-bar's moving link that swing clear of the bumper (the kicker ramp). ownsParts: false keeps the moving parts in their own subsystem (the brain pan cover stays Frame, its slider shows under Electrical). After changing, run: npm run model"
   ],
   "robot": {
     "name": "Chuck Norris",
@@ -249,6 +249,12 @@
         "Battery",
         "Battery Plug"
       ],
+      "includeMechanisms": [
+        "brainpan"
+      ],
+      "camera": {
+        "elevation": -30
+      },
       "frameOn": [
         "Power Distribution",
         "Simplified MPM",
@@ -371,6 +377,12 @@
       "followerLinks": [
         "Intake Pivot Bar with Cutout"
       ],
+      "swivel": {
+        "parts": [
+          "Kicker Ramp"
+        ],
+        "hingePart": "Intake Secondary Rubber Roller"
+      },
       "min": -73,
       "max": 0,
       "default": 0,

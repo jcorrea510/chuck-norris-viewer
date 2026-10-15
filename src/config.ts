@@ -16,6 +16,8 @@ export interface Subsystem {
   hideWhenFocused?: string[];
   /** Parts (by name) the camera centers on when the subsystem is selected. Default: all of them. */
   frameOn?: string[];
+  /** Mechanisms shown solid with this subsystem even though their parts belong elsewhere. */
+  includeMechanisms?: string[];
   /** Optional camera angle override, in degrees. */
   camera?: { azimuth?: number; elevation?: number; zoom?: number };
 }

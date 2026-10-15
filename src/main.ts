@@ -155,6 +155,16 @@ function mechanismsForSubsystem(id: string) {
   return [...viewer.mechanisms.keys()].filter((m) => mechanismSubsystem.get(m) === id || P.partsOfMechanism(m).some((p) => P.subsystemOf(P.nodeOfPart(p)) === id));
 }
 
+/** Parts shown solid for a subsystem: its own, plus any mechanisms it includes (the brain pan cover). */
+function subsystemFocus(id: string) {
+  const pids = viewer.subsystemPids(id);
+  const s = subsystemById.get(id);
+  if (!s?.includeMechanisms?.length || !viewer.parts) return pids;
+  const set = new Set(pids);
+  for (const m of s.includeMechanisms) for (const p of viewer.parts.partsOfMechanism(m)) set.add(p);
+  return [...set];
+}
+
 function selectSubsystem(id: string, spec?: FrameSpec) {
   if (!state.ready || state.sim) return;
   touch();
@@ -162,7 +172,7 @@ function selectSubsystem(id: string, spec?: FrameSpec) {
   if (!s) return;
   restoreAutoHidden();
   state.sel = { kind: 'sub', id };
-  const pids = viewer.subsystemPids(id);
+  const pids = subsystemFocus(id);
   if (s.hideWhenFocused?.length && viewer.parts) {
     const inSub = new Set(pids);
     state.autoHidden = viewer.parts.partsMatching(s.hideWhenFocused).filter((p) => inSub.has(p) && viewer.state.isVisible(p));
@@ -381,7 +391,11 @@ async function enterSim(mode: SimMode = 'auto') {
     const { Simulation } = await import('./sim/index');
     const sim = new Simulation(viewer);
     state.sim = sim;
-    sim.onStatus = (s) => ui.simStatus(s, sim.view);
+    sim.onStatus = (s) => {
+      ui.simStatus(s, sim.view);
+      // pit display: a broadcast-style lower third instead of the controls
+      if (state.pit && !s.loading) ui.pitShowcase({ kicker: `${robot.name} · ${robot.team}`, title: s.mode === 'auto' ? 'Autonomous' : 'Endless simulation', line: `${s.scored} fuel scored · ${s.phase}` });
+    };
     await sim.start(mode);
   } catch (err) {
     console.error(err);
@@ -424,7 +438,7 @@ function tapTarget(hit: Hit): TapTarget | null {
 }
 function targetPids(t: TapTarget | null): number[] | null {
   if (!t) return null;
-  if (t.kind === 'sub') return viewer.subsystemPids(t.id);
+  if (t.kind === 'sub') return subsystemFocus(t.id);
   return Array.from(viewer.parts!.partsOf(t.node));
 }
 /** The mechanism a part rides on (turrets, intake four-bar, brain pan), if any. */
@@ -658,7 +672,7 @@ function pitShowcaseTick(dt: number) {
     pitShow.index = (pitShow.index + 1) % subsystems.length;
     const s = subsystems[pitShow.index];
     viewer.showcase = true;
-    viewer.setFocus(viewer.subsystemPids(s.id));
+    viewer.setFocus(subsystemFocus(s.id));
     ui.pitShowcase({ kicker: `${robot.name} · ${robot.team}`, title: s.name, line: s.highlights?.[0] ?? s.summary });
   } else if (pitShow.active && pitShow.clock > SPOT) {
     pitShow.active = false;
