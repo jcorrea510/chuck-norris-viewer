@@ -1,0 +1,236 @@
+{
+  "_readme": [
+    "This is the one file to edit. Change any text below, save, then commit (see README).",
+    "Lines starting with EDIT: are placeholders that still need real info from the team.",
+    "robot.front: which way the robot faces at the start. \"auto\" points the intake at the viewer; or use +x, -x, +z, -z.",
+    "match: words that appear in Onshape sub-assembly or part names. Parts that match nothing go to Frame & Structure.",
+    "camera (optional, per subsystem): { \"azimuth\": degrees around, \"elevation\": degrees above the floor, \"zoom\": 1 = default, 1.3 = closer }.",
+    "After changing match words, run: npm run model"
+  ],
+  "robot": {
+    "name": "Chuck Norris",
+    "team": "Team 3950 · RoboGym Robotics",
+    "season": "EDIT: 2026 REBUILT",
+    "front": "auto",
+    "idleResetSeconds": 90,
+    "autoSpinResumeSeconds": 8,
+    "secondsPerRevolution": 52,
+    "exclude": [
+      "Origin Cube"
+    ]
+  },
+  "subsystems": [
+    {
+      "id": "swerve",
+      "name": "Swerve Drive",
+      "short": "Swerve",
+      "icon": "move",
+      "summary": "EDIT: Four independently steered modules let us drive in any direction while rotating.",
+      "specs": [
+        {
+          "label": "Modules",
+          "value": "4× SDS MK4i"
+        },
+        {
+          "label": "Encoders",
+          "value": "4× CTRE CANcoder"
+        },
+        {
+          "label": "Drive Motors",
+          "value": "EDIT: 4× Kraken X60"
+        },
+        {
+          "label": "Top Speed",
+          "value": "EDIT: 15.5 ft/s"
+        }
+      ],
+      "talkingPoints": [
+        "EDIT: Field-oriented control means the driver pushes the stick toward a spot on the field and the robot goes there, no matter which way it faces.",
+        "EDIT: Inverted MK4i modules keep motors low and protected inside the frame.",
+        "EDIT: Absolute encoders remember each wheel's angle, so we never re-zero between matches."
+      ],
+      "match": [
+        "SDS MK4i",
+        "MK4i",
+        "MK4 Line",
+        "cancoder"
+      ]
+    },
+    {
+      "id": "intake",
+      "name": "Roller Bar Intake",
+      "short": "Intake",
+      "icon": "arrow-down-to-line",
+      "summary": "EDIT: A full-width roller bar that pulls game pieces off the floor on contact.",
+      "specs": [
+        {
+          "label": "Motor",
+          "value": "Kraken X44"
+        },
+        {
+          "label": "Rollers",
+          "value": "Polycarb + rubber, 2 stages"
+        },
+        {
+          "label": "Width",
+          "value": "EDIT: Full frame width"
+        }
+      ],
+      "talkingPoints": [
+        "EDIT: Touch it, own it: compliant rubber rollers grab pieces even at awkward angles.",
+        "EDIT: Two roller stages hand pieces straight into the hopper with no stops.",
+        "EDIT: Built to survive hits from defense: the bar folds back instead of bending."
+      ],
+      "match": [
+        "Intake Assembly",
+        "Intake Roller",
+        "Secondary Intake",
+        "First Hopper Roller",
+        "Second Hopper Roller"
+      ]
+    },
+    {
+      "id": "hopper",
+      "name": "Hopper & Indexer",
+      "short": "Hopper",
+      "icon": "layers",
+      "summary": "EDIT: Stores game pieces and lines them up for the turrets one at a time.",
+      "specs": [
+        {
+          "label": "Rollers",
+          "value": "Mecanum top & bottom"
+        },
+        {
+          "label": "Indexer",
+          "value": "Master roller + 8 feed rollers"
+        },
+        {
+          "label": "Motors",
+          "value": "EDIT: Kraken X44 + Kraken X60"
+        },
+        {
+          "label": "Capacity",
+          "value": "EDIT: 30 pieces"
+        }
+      ],
+      "talkingPoints": [
+        "EDIT: Mecanum rollers push pieces sideways and forward at once, so they never jam in the corners.",
+        "EDIT: The indexer splits the stream evenly between both turrets.",
+        "EDIT: Polycarb side walls let the drive team see how full we are."
+      ],
+      "match": [
+        "Hopper Assembly",
+        "Hopper Roller",
+        "Mecanum Roller",
+        "Indexer"
+      ]
+    },
+    {
+      "id": "turrets",
+      "name": "Twin Turrets",
+      "short": "Turrets",
+      "icon": "crosshair",
+      "summary": "EDIT: Two independently aiming turrets that score from anywhere while we drive.",
+      "specs": [
+        {
+          "label": "Turrets",
+          "value": "2× independent"
+        },
+        {
+          "label": "Flywheels",
+          "value": "4\" brass, 1 per turret"
+        },
+        {
+          "label": "Hood",
+          "value": "Adjustable, geared"
+        },
+        {
+          "label": "Motors",
+          "value": "EDIT: Kraken X44 per turret"
+        }
+      ],
+      "talkingPoints": [
+        "EDIT: Each turret tracks the target on its own, so the driver can focus on driving.",
+        "EDIT: Heavy brass flywheels keep their speed between shots for consistent range.",
+        "EDIT: The adjustable hood changes the shot angle based on distance from the goal."
+      ],
+      "match": [
+        "Shooter Full Assembly",
+        "Turret",
+        "Shooter Assembly",
+        "Flywheel",
+        "Hood"
+      ]
+    },
+    {
+      "id": "electrical",
+      "name": "Electrical & Controls",
+      "short": "Electrical",
+      "icon": "zap",
+      "summary": "EDIT: Clean, serviceable wiring with vision, power and status all in easy reach.",
+      "specs": [
+        {
+          "label": "Power",
+          "value": "REV PDH + 120A breaker"
+        },
+        {
+          "label": "Radio",
+          "value": "Vivid-Hosting VH-109"
+        },
+        {
+          "label": "Vision",
+          "value": "2× Limelight"
+        },
+        {
+          "label": "Controller",
+          "value": "EDIT: roboRIO 2"
+        }
+      ],
+      "talkingPoints": [
+        "EDIT: Two Limelight cameras give the turrets their aim and keep track of our position on the field.",
+        "EDIT: Every wire is labeled and the brain pan opens for fast pit repairs.",
+        "EDIT: The main breaker and battery plug sit on the outside for quick swaps between matches."
+      ],
+      "match": [
+        "Brain Pan",
+        "Power Distribution",
+        "PDH",
+        "Breaker",
+        "Robot Radio",
+        "Radio Mount",
+        "Limelight",
+        "RSL",
+        "Signal Light",
+        "MPM",
+        "Battery"
+      ]
+    },
+    {
+      "id": "frame",
+      "name": "Frame & Structure",
+      "short": "Frame",
+      "icon": "box",
+      "summary": "EDIT: A rigid aluminum chassis and bumpers that tie every mechanism together.",
+      "specs": [
+        {
+          "label": "Tube",
+          "value": "2×1 aluminum"
+        },
+        {
+          "label": "Bumpers",
+          "value": "EDIT: Quick-swap, red / blue"
+        },
+        {
+          "label": "Weight",
+          "value": "EDIT: 115 lb"
+        }
+      ],
+      "talkingPoints": [
+        "EDIT: Riveted gussets keep the frame square after hard hits.",
+        "EDIT: Bumpers attach with hinges and pins so we can swap colors in under a minute.",
+        "EDIT: Designed in Onshape so everyone on the team can edit the same model."
+      ],
+      "match": []
+    }
+  ]
+}
