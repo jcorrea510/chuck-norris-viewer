@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "model": "node --max-old-space-size=6144 scripts/optimize-model.mjs"
+    "model": "node --max-old-space-size=6144 scripts/optimize-model.mjs",
+    "field": "node --max-old-space-size=6144 scripts/optimize-field.mjs"
   },
   "keywords": [],
   "author": "",

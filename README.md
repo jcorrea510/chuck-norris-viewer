@@ -1,103 +1,115 @@
 # Chuck Norris: 3D Robot Showcase
 
-An interactive 3D model of **Chuck Norris**, FRC Team 3950 RoboGym Robotics' robot, built for showing judges on an iPad.
+An interactive 3D model of **Chuck Norris**, FRC Team 3950 RoboGym Robotics' 2026 REBUILT robot, built for showing judges on an iPad.
 
-- **Turn it:** drag with one finger.
-- **Zoom:** pinch.
-- **Move it:** drag with two fingers.
-- **Learn about a part:** tap it, tap its floating name tag, or tap its name in the bar at the bottom.
-- **Overview** resets the view. **Tour** steps through every subsystem in order. **Explode** pulls the subsystems apart.
-- If nobody touches it for 90 seconds, it resets itself and starts spinning, ready for the next judge.
+**Live site:** https://jcorrea510.github.io/chuck-norris-viewer/
 
-After the first time it's opened, it works with **no Wi-Fi**.
+## What it does
+
+| Do this | What happens |
+| --- | --- |
+| Drag one finger | Turn the robot. Drag low to see the **underside**. |
+| Pinch / two-finger drag | Zoom / move |
+| Tap a subsystem name (bottom bar) or a floating tag | Fly to it. Everything else becomes a faint hologram. |
+| **Tap any part** | Select that exact part: a motor, a roller, a Limelight. Its real specs appear when it's a known FRC part. |
+| **Tap the same part again** | Select the assembly it belongs to. Keep tapping to climb up: part → assembly → turret → subsystem. The path at the top of the card works too. |
+| **Double-tap a part** | Hide it. A "hidden" pill appears with **Undo** and **Show All**. **Isolate** on the card hides everything else. |
+| **Search** (top-right magnifying glass) | Find any part by name: "kraken", "roller", "limelight", "PDH". |
+| **Move** | Rotate each turret on its turntable, raise or lower the intake and hopper, and open the brain pan. Opening the brain pan lifts the robot and swings the camera underneath. |
+| **Explode** | Pulls the subsystems apart |
+| **Simulate** | Chuck Norris on the 2026 REBUILT field: drives under the trench, collects FUEL, and shoots on the move into the HUB with both turrets tracking. |
+| **Press and hold "Chuck Norris"** (top-left) | Hidden **Settings**: light or dark mode, accent color, hologram strength, sounds, spin speed, labels, idle reset and quality |
+
+If nobody touches it for 90 seconds (adjustable in Settings), it resets itself, so it's ready for the next judge. Everything works **offline** after the first visit, including the simulation.
 
 ---
 
 ## Opening it on the iPad
 
-1. On the iPad, open **Safari** and go to the site address (see "Where the site lives" below).
-2. Wait for the robot to appear. A small "Ready offline" note means everything is saved on the iPad.
-3. Tap the **Share** button (the square with an arrow), then **Add to Home Screen**, then **Add**.
-4. From now on, open it from the **Chuck Norris** icon on the Home Screen. It opens full screen, like an app, and works without Wi-Fi.
+1. On the iPad, open **Safari** and go to the site address above.
+2. Wait for the robot to appear. A "Ready offline" note means everything is saved on the iPad.
+3. Tap **Share** (the square with an arrow), then **Add to Home Screen**, then **Add**.
+4. Open it from the **Chuck Norris** icon. It runs full screen, like an app, and works without Wi-Fi.
 
-Before a competition, open it once on venue-independent Wi-Fi (home or school) so the newest version is saved on the iPad.
+**About the full-screen button:** Safari on iPad only allows true full screen for pages opened from the Home Screen. If the button can't go full screen, it shows these same steps.
 
-**Tip:** In Safari (not the Home Screen app) there is a full-screen button in the top-right corner.
-
-## Where the site lives
-
-`https://jcorrea510.github.io/chuck-norris-viewer/`
-
-Every time a change is pushed to GitHub, the site rebuilds by itself in about two minutes.
+Before a competition, open it once on good Wi-Fi so the newest version is saved on the iPad.
 
 ---
 
-## Changing the words (subsystem names, specs, talking points)
+## Changing the words
 
-All the text lives in one file: **`src/subsystems.json`**.
+All the text lives in **`src/subsystems.json`**.
 
-1. On GitHub, open the repository, click `src` → `subsystems.json`, then the **pencil** icon (Edit).
-2. Change the text between the quote marks. Keep the quote marks and commas exactly where they are.
-3. Anything that starts with **`EDIT:`** is a placeholder. Replace it with the real info, and delete the `EDIT:` part.
-4. Click **Commit changes**. The site updates in about two minutes.
-
-What each part means:
+1. On GitHub, open `src` → `subsystems.json`, then click the **pencil** icon.
+2. Change the text between the quote marks. Keep every quote mark and comma.
+3. Click **Commit changes**. The site updates in about two minutes.
 
 | Field | What it is |
 | --- | --- |
-| `name` | Full name shown on the info card |
-| `short` | Short name for the bottom bar and the floating tags |
+| `name` / `short` | Full name on the card / short name in the bottom bar |
 | `summary` | One line under the name |
-| `specs` | The grid of label/value pairs, e.g. `{ "label": "Motors", "value": "2× Kraken X60" }` |
-| `talkingPoints` | 2–4 bullet points for judges |
-| `icon` | Icon name: `move`, `arrow-down-to-line`, `layers`, `crosshair`, `zap`, `box`, `cog`, `cpu`, `gauge`, `target`, `wrench`, `camera` or `battery` |
-| `match` | Words from Onshape part/assembly names that belong to this subsystem (see below) |
-| `camera` | *(optional)* Fixed viewing angle, e.g. `"camera": { "azimuth": 45, "elevation": 30, "zoom": 1.2 }` |
+| `specs` | Label/value pairs, e.g. `{ "label": "Motors", "value": "2× Kraken X60" }` |
+| `highlights` | 3–4 bullets of about five words each |
+| `icon` | `move`, `arrow-down-to-line`, `layers`, `crosshair`, `zap`, `box`, `cog`, `cpu`, `gauge`, `target`, `wrench`, `camera` or `battery` |
+| `match` | Words from Onshape part/assembly names that belong to this subsystem |
+| `hideWhenFocused` | Parts hidden while that subsystem is selected (the turret wiring side panels) |
+| `camera` | *(optional)* `{ "azimuth": 45, "elevation": 30, "zoom": 1.2 }` |
 
-At the top, the `robot` section sets the robot name, team line, which side is the front (`"auto"` points the intake at the viewer), the idle reset time (90 seconds), and the spin speed.
+Specs for common parts (Kraken X60/X44, Limelight, PDH, MK4i, VH-109 radio and more) come from `src/knownparts.ts`.
 
-If the site shows a blank screen after an edit, there is probably a missing comma or quote mark. GitHub's editor underlines mistakes in red.
+### Mechanisms
+
+The `mechanisms` section in `subsystems.json` defines what moves. These values were worked out from the CAD:
+
+- **Turrets:** rotate about the center of each AndyMark 200T turntable gear. The shooter, the turret tubes and the side panels turn; the legs, base plate and Kraken X44 rotation motor stay fixed.
+- **Intake & Hopper:** pivot on the 1/2" hex shaft driven through the 26T sprocket (12T on the VersaPlanetary output, #35 chain). **Up** (−110°) is where the whole assembly fits back inside the frame perimeter. Adjust the `Up` number if the real stowed angle differs.
+- **Brain Pan:** the polycarbonate cover swings down on its four hinges, exposing the PDH and MPM mounted under the brain pan.
 
 ---
 
 ## Updating the 3D model from Onshape
 
-You need a computer with Node.js installed (nodejs.org, the "LTS" version) and this repository downloaded.
+You need a computer with Node.js (nodejs.org, "LTS") and this repository downloaded.
 
-1. In Onshape, right-click the top-level assembly tab → **Export** → format **GLTF / GLB** (binary). Draco compression is fine.
-2. Save the file as **`cad/chuck-norris.glb`** in this folder, replacing the old one. The `cad/` folder is never uploaded to GitHub because the raw file is too big.
-3. Open Terminal in this folder and run:
+1. In Onshape, right-click the top-level assembly → **Export** → **GLB**. Make sure nothing important is hidden.
+2. Put the file in the **`cad/`** folder. The newest file there is used. `cad/` is never uploaded.
+3. In Terminal, in this folder:
    ```
    npm install
    npm run model
    ```
-   This prints the assembly tree and a **coverage report** showing how many parts went to each subsystem, then writes the small, optimized model to `public/models/chuck-norris.glb`.
-4. Check it locally with `npm run dev` and open the address it prints.
-5. Commit and push. Only the optimized file gets uploaded.
+   This prints the assembly tree, a **coverage report** (parts per subsystem) and the **mechanisms** it found, then writes `public/models/chuck-norris.glb` (about 13 MB) and `chuck-norris.parts.json` (the part names used for tapping and search).
+4. Check it with `npm run dev`, then commit and push.
 
-**If a part shows up under the wrong subsystem:** add a word from its Onshape name to that subsystem's `match` list in `src/subsystems.json`, then run `npm run model` again. Anything that matches nothing goes to **Frame & Structure**. To see the tree and coverage without building, run `npm run model -- --inspect`.
+**A part is in the wrong subsystem?** Add a word from its Onshape name to that subsystem's `match` list and run `npm run model` again. Unmatched parts go to **Frame & Structure**. `npm run model -- --inspect` shows the tree without building. The climber and the stray FUEL ball in the CAD are excluded with `robot.exclude`.
 
-The build keeps the CAD colors, merges thousands of parts into a few dozen pieces so the iPad stays smooth, and shrinks the file from about 123 MB to about 12 MB. It never changes the file in `cad/`.
+### The simulation field
+
+The field comes from the AdvantageScope 2026 field model (see below). To rebuild it, put `model.glb`, `model_0.glb` and `config.json` from `Field3d_2026FRCFieldV2.zip` into `cad/field/` and run `npm run field`.
 
 ---
 
 ## Troubleshooting
 
-- **The robot didn't update after I changed something.** Close the app fully (swipe it away in the app switcher) and open it again while on Wi-Fi. It checks for the new version on launch.
-- **"Restoring…" appears.** iPadOS reclaimed graphics memory while the app was in the background. It recovers on its own in a second.
-- **The screen goes to sleep.** The site asks the iPad to stay awake after the first touch. If it still dims, go to Settings → Display & Brightness → Auto-Lock and set it to **Never** for the event.
-- **It spins too fast or too slow.** Change `secondsPerRevolution` in `src/subsystems.json`.
-- **The robot faces the wrong way at the start.** Change `"front"` to `"+x"`, `"-x"`, `"+z"` or `"-z"` in `src/subsystems.json`.
-- **The site didn't rebuild.** On GitHub, open the **Actions** tab. A red X means the build failed; click it to see why (usually a typo in `subsystems.json`).
-- **Debug numbers:** add `?debug=1` to the end of the address to see frame rate, draw calls and triangle counts.
+- **The robot didn't update.** Fully close the app (swipe it away) and open it on Wi-Fi.
+- **"Restoring…" appears.** iPadOS reclaimed graphics memory in the background. It recovers by itself.
+- **The screen sleeps.** The page asks the iPad to stay awake. If it still dims, set Settings → Display & Brightness → Auto-Lock to **Never** for the event.
+- **It feels slow or the iPad gets warm.** Settings (press and hold the name) → Performance → **Battery**.
+- **No sounds.** Check the iPad's silent switch and volume, then Settings → Sound.
+- **The site didn't rebuild.** On GitHub, open **Actions**. A red X usually means a typo in `subsystems.json`.
+- **Frame-rate numbers:** Settings → Show Frame Rate, or add `?debug=1` to the address.
 
 ---
 
 ## For programmers
 
-- Vite + TypeScript + three.js, with camera-controls for orbit and flights, three-mesh-bvh for tap picking, and vite-plugin-pwa for offline use.
-- `scripts/optimize-model.mjs`: gltf-transform pipeline. It tags each mesh with its subsystem, bakes transforms, normalizes units/up-axis/ground, merges per subsystem per finish, welds, simplifies only if over budget, and compresses with meshopt.
-- `npm run build`: type-check plus a production build into `dist/`.
-- `npm test`: Playwright check at 1180×820, 820×1180 and 1366×1024 with touch emulation. Screenshots go to `shots/`. Run `npm run build` first.
-- If `public/models/chuck-norris.glb` is missing, the site falls back to a procedural stand-in robot with the same subsystem structure.
-- Keyboard: ← → move between subsystems, Esc goes back, R resets.
+- Vite + TypeScript + three.js, with camera-controls, three-mesh-bvh (tap picking) and vite-plugin-pwa (offline).
+- `scripts/optimize-model.mjs` uses gltf-transform. Each part gets a numeric id stored per vertex (`_PARTID`), so the robot draws in about 40 meshes but every part can still be picked, hidden, highlighted or searched. A 64×N state texture drives visibility, focus and the hologram in the shaders. Mechanism parts are merged into pivot nodes.
+- `src/sim.ts` (loaded on demand): scripted swerve path, intake collection, ballistic shots solved for the HUB opening, and FUEL returning through the HUB exit.
+- `npm run build`: type-check plus production build. `npm test`: Playwright at 1180×820, 820×1180 and 1366×1024 with touch emulation (screenshots go to `shots/`).
+- Keyboard: ← → subsystems · Esc back · R reset · / search · , settings · H hide selection.
+
+## Credits
+
+The 2026 field, HUB and FUEL models are from **AdvantageScope** by Littleton Robotics (FRC 6328). Copyright (c) 2021-2026 Littleton Robotics, BSD-3-Clause; the full notice is in `public/field/LICENSE-AdvantageScope.txt`. Icons: Lucide (ISC).

@@ -22,12 +22,30 @@ import wrench from 'lucide-static/icons/wrench.svg?raw';
 import camera from 'lucide-static/icons/camera.svg?raw';
 import battery from 'lucide-static/icons/battery.svg?raw';
 import x from 'lucide-static/icons/x.svg?raw';
+import i_search from 'lucide-static/icons/search.svg?raw';
+import i_rotate_3d from 'lucide-static/icons/rotate-3d.svg?raw';
+import i_play from 'lucide-static/icons/play.svg?raw';
+import i_scan_eye from 'lucide-static/icons/scan-eye.svg?raw';
+import i_rotate_ccw from 'lucide-static/icons/rotate-ccw.svg?raw';
+import i_eye_off from 'lucide-static/icons/eye-off.svg?raw';
+import i_focus from 'lucide-static/icons/focus.svg?raw';
+import i_arrow_up_from_line from 'lucide-static/icons/arrow-up-from-line.svg?raw';
+import i_eye from 'lucide-static/icons/eye.svg?raw';
 
 const ICONS: Record<string, string> = {
   move, 'arrow-down-to-line': arrowDownToLine, layers, crosshair, zap, box, house,
   'square-play': squarePlay, boxes, maximize, minimize, 'chevron-left': chevronLeft,
   'chevron-right': chevronRight, pointer, 'circle-check': circleCheck, cog, cpu, gauge,
   target, wrench, camera, battery, x,
+  'search': i_search,
+  'rotate-3d': i_rotate_3d,
+  'play': i_play,
+  'scan-eye': i_scan_eye,
+  'rotate-ccw': i_rotate_ccw,
+  'eye-off': i_eye_off,
+  'focus': i_focus,
+  'arrow-up-from-line': i_arrow_up_from_line,
+  'eye': i_eye,
 };
 
 /** Returns inline SVG markup for an icon name; unknown names fall back to a box. */

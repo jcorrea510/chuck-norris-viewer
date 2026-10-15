@@ -1,22 +1,24 @@
 {
   "_readme": [
-    "This is the one file to edit. Change any text below, save, then commit (see README).",
-    "Lines starting with EDIT: are placeholders that still need real info from the team.",
+    "This is the one file to edit. Change any text, save, then commit (see README).",
+    "highlights: 3-4 very short bullets (about five words each). specs: label/value pairs.",
     "robot.front: which way the robot faces at the start. \"auto\" points the intake at the viewer; or use +x, -x, +z, -z.",
-    "match: words that appear in Onshape sub-assembly or part names. Parts that match nothing go to Frame & Structure.",
-    "camera (optional, per subsystem): { \"azimuth\": degrees around, \"elevation\": degrees above the floor, \"zoom\": 1 = default, 1.3 = closer }.",
-    "After changing match words, run: npm run model"
+    "match: words from Onshape sub-assembly or part names. Parts that match nothing go to Frame & Structure.",
+    "hideWhenFocused: parts hidden while that subsystem is selected (e.g. panels that block the view).",
+    "mechanisms: moving parts. pivot/region numbers are CAD coordinates in meters. After changing match words or mechanisms, run: npm run model"
   ],
   "robot": {
     "name": "Chuck Norris",
     "team": "Team 3950 · RoboGym Robotics",
-    "season": "EDIT: 2026 REBUILT",
+    "season": "2026 REBUILT",
     "front": "auto",
     "idleResetSeconds": 90,
     "autoSpinResumeSeconds": 8,
     "secondsPerRevolution": 52,
     "exclude": [
-      "Origin Cube"
+      "Origin Cube",
+      "Climb Assembly",
+      "Fuel"
     ]
   },
   "subsystems": [
@@ -25,7 +27,7 @@
       "name": "Swerve Drive",
       "short": "Swerve",
       "icon": "move",
-      "summary": "EDIT: Four independently steered modules let us drive in any direction while rotating.",
+      "summary": "Four independently steered modules let us drive in any direction while rotating.",
       "specs": [
         {
           "label": "Modules",
@@ -37,17 +39,18 @@
         },
         {
           "label": "Drive Motors",
-          "value": "EDIT: 4× Kraken X60"
+          "value": "4× Kraken X60"
         },
         {
           "label": "Top Speed",
-          "value": "EDIT: 15.5 ft/s"
+          "value": "15.5 ft/s"
         }
       ],
-      "talkingPoints": [
-        "EDIT: Field-oriented control means the driver pushes the stick toward a spot on the field and the robot goes there, no matter which way it faces.",
-        "EDIT: Inverted MK4i modules keep motors low and protected inside the frame.",
-        "EDIT: Absolute encoders remember each wheel's angle, so we never re-zero between matches."
+      "highlights": [
+        "Four independently steered MK4i modules",
+        "Drives any direction, field-oriented",
+        "Absolute CANcoder on every module",
+        "Kraken X60 drive motors"
       ],
       "match": [
         "SDS MK4i",
@@ -61,11 +64,15 @@
       "name": "Roller Bar Intake",
       "short": "Intake",
       "icon": "arrow-down-to-line",
-      "summary": "EDIT: A full-width roller bar that pulls game pieces off the floor on contact.",
+      "summary": "A full-width roller intake on a powered pivot that also opens the hopper.",
       "specs": [
         {
-          "label": "Motor",
+          "label": "Roller Motor",
           "value": "Kraken X44"
+        },
+        {
+          "label": "Pivot",
+          "value": "VersaPlanetary, 12:26 chain"
         },
         {
           "label": "Rollers",
@@ -73,13 +80,14 @@
         },
         {
           "label": "Width",
-          "value": "EDIT: Full frame width"
+          "value": "Full frame width"
         }
       ],
-      "talkingPoints": [
-        "EDIT: Touch it, own it: compliant rubber rollers grab pieces even at awkward angles.",
-        "EDIT: Two roller stages hand pieces straight into the hopper with no stops.",
-        "EDIT: Built to survive hits from defense: the bar folds back instead of bending."
+      "highlights": [
+        "Full-width over-the-bumper rollers",
+        "Touch it, own it pickup",
+        "Powered pivot, stows inside frame",
+        "VersaPlanetary + #35 chain drive"
       ],
       "match": [
         "Intake Assembly",
@@ -94,7 +102,7 @@
       "name": "Hopper & Indexer",
       "short": "Hopper",
       "icon": "layers",
-      "summary": "EDIT: Stores game pieces and lines them up for the turrets one at a time.",
+      "summary": "Stores game pieces and lines them up for the turrets one at a time.",
       "specs": [
         {
           "label": "Rollers",
@@ -106,17 +114,17 @@
         },
         {
           "label": "Motors",
-          "value": "EDIT: Kraken X44 + Kraken X60"
+          "value": "Kraken X44 + Kraken X60"
         },
         {
           "label": "Capacity",
-          "value": "EDIT: 30 pieces"
+          "value": "30 pieces"
         }
       ],
-      "talkingPoints": [
-        "EDIT: Mecanum rollers push pieces sideways and forward at once, so they never jam in the corners.",
-        "EDIT: The indexer splits the stream evenly between both turrets.",
-        "EDIT: Polycarb side walls let the drive team see how full we are."
+      "highlights": [
+        "Mecanum rollers prevent corner jams",
+        "Indexer feeds both turrets evenly",
+        "Deep storage for long volleys"
       ],
       "match": [
         "Hopper Assembly",
@@ -130,11 +138,15 @@
       "name": "Twin Turrets",
       "short": "Turrets",
       "icon": "crosshair",
-      "summary": "EDIT: Two independently aiming turrets that score from anywhere while we drive.",
+      "summary": "Two independently aiming turrets that score from anywhere while we drive.",
       "specs": [
         {
-          "label": "Turrets",
-          "value": "2× independent"
+          "label": "Turntable",
+          "value": "AndyMark 200T, 20DP"
+        },
+        {
+          "label": "Turret Motor",
+          "value": "Kraken X44"
         },
         {
           "label": "Flywheels",
@@ -142,17 +154,14 @@
         },
         {
           "label": "Hood",
-          "value": "Adjustable, geared"
-        },
-        {
-          "label": "Motors",
-          "value": "EDIT: Kraken X44 per turret"
+          "value": "Adjustable, servo"
         }
       ],
-      "talkingPoints": [
-        "EDIT: Each turret tracks the target on its own, so the driver can focus on driving.",
-        "EDIT: Heavy brass flywheels keep their speed between shots for consistent range.",
-        "EDIT: The adjustable hood changes the shot angle based on distance from the goal."
+      "highlights": [
+        "Two independently aiming turrets",
+        "200-tooth turntable, Kraken X44",
+        "Shoot while driving, any heading",
+        "Adjustable hood for distance"
       ],
       "match": [
         "Shooter Full Assembly",
@@ -160,6 +169,9 @@
         "Shooter Assembly",
         "Flywheel",
         "Hood"
+      ],
+      "hideWhenFocused": [
+        "Turret Wiring Side Panel"
       ]
     },
     {
@@ -167,7 +179,7 @@
       "name": "Electrical & Controls",
       "short": "Electrical",
       "icon": "zap",
-      "summary": "EDIT: Clean, serviceable wiring with vision, power and status all in easy reach.",
+      "summary": "Clean, serviceable wiring with vision, power and status all in easy reach.",
       "specs": [
         {
           "label": "Power",
@@ -182,14 +194,15 @@
           "value": "2× Limelight"
         },
         {
-          "label": "Controller",
-          "value": "EDIT: roboRIO 2"
+          "label": "Brain Pan",
+          "value": "Hinged polycarb cover"
         }
       ],
-      "talkingPoints": [
-        "EDIT: Two Limelight cameras give the turrets their aim and keep track of our position on the field.",
-        "EDIT: Every wire is labeled and the brain pan opens for fast pit repairs.",
-        "EDIT: The main breaker and battery plug sit on the outside for quick swaps between matches."
+      "highlights": [
+        "Hinged brain pan for access",
+        "Dual Limelight vision localization",
+        "REV PDH with 120A main",
+        "Clean, labeled, serviceable wiring"
       ],
       "match": [
         "Brain Pan",
@@ -202,7 +215,8 @@
         "RSL",
         "Signal Light",
         "MPM",
-        "Battery"
+        "Battery",
+        "Brain Pan Polycarb"
       ]
     },
     {
@@ -210,7 +224,7 @@
       "name": "Frame & Structure",
       "short": "Frame",
       "icon": "box",
-      "summary": "EDIT: A rigid aluminum chassis and bumpers that tie every mechanism together.",
+      "summary": "A rigid aluminum chassis and bumpers that tie every mechanism together.",
       "specs": [
         {
           "label": "Tube",
@@ -218,19 +232,138 @@
         },
         {
           "label": "Bumpers",
-          "value": "EDIT: Quick-swap, red / blue"
+          "value": "Quick-swap, red / blue"
         },
         {
           "label": "Weight",
-          "value": "EDIT: 115 lb"
+          "value": "115 lb"
         }
       ],
-      "talkingPoints": [
-        "EDIT: Riveted gussets keep the frame square after hard hits.",
-        "EDIT: Bumpers attach with hinges and pins so we can swap colors in under a minute.",
-        "EDIT: Designed in Onshape so everyone on the team can edit the same model."
+      "highlights": [
+        "Riveted 2×1 aluminum chassis",
+        "Quick-swap red and blue bumpers",
+        "Designed fully in Onshape"
       ],
       "match": []
+    }
+  ],
+  "mechanisms": [
+    {
+      "id": "turret-left",
+      "name": "Left Turret",
+      "subsystem": "turrets",
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "pivotPart": [
+        "Left Turret Assembly",
+        "200T 20DP Turntable Gear"
+      ],
+      "parts": {
+        "within": "Left Turret Assembly",
+        "match": [
+          "Shooter Assembly",
+          "Turret Wiring Side Panel",
+          "Turret Tubes Assembly",
+          "200T 20DP Turntable Gear"
+        ]
+      },
+      "min": -180,
+      "max": 180,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "turret-right",
+      "name": "Right Turret",
+      "subsystem": "turrets",
+      "axis": [
+        0,
+        1,
+        0
+      ],
+      "pivotPart": [
+        "Right Turret Assembly",
+        "200T 20DP Turntable Gear"
+      ],
+      "parts": {
+        "within": "Right Turret Assembly",
+        "match": [
+          "Shooter Assembly",
+          "Turret Wiring Side Panel",
+          "Turret Tubes Assembly",
+          "200T 20DP Turntable Gear"
+        ]
+      },
+      "min": -180,
+      "max": 180,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "intake",
+      "name": "Intake & Hopper",
+      "subsystem": "intake",
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0.2165,
+        0.2095
+      ],
+      "parts": {
+        "within": "Intake Assembly"
+      },
+      "min": -110,
+      "max": 0,
+      "default": 0,
+      "states": {
+        "Down": 0,
+        "Up": -110
+      }
+    },
+    {
+      "id": "brainpan",
+      "name": "Brain Pan",
+      "subsystem": "electrical",
+      "axis": [
+        1,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0.0492,
+        0.0842
+      ],
+      "parts": {
+        "within": "Drivetrain Assembly",
+        "region": {
+          "min": [
+            -0.36,
+            0.035,
+            -0.346
+          ],
+          "max": [
+            0.36,
+            0.0546,
+            0.0895
+          ]
+        }
+      },
+      "min": -95,
+      "max": 0,
+      "default": 0,
+      "states": {
+        "Closed": 0,
+        "Open": -95
+      },
+      "liftRobot": 0.5
     }
   ]
 }

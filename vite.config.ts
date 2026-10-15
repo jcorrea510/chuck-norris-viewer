@@ -9,7 +9,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,
-      includeAssets: ['icons/*.png', 'models/*.glb'],
+      includeAssets: ['icons/*.png', 'models/*', 'field/*'],
       manifest: {
         name: 'Chuck Norris · Team 3950',
         short_name: 'Chuck Norris',
@@ -28,7 +28,7 @@ export default defineConfig({
       },
       workbox: {
         // Precache everything, including the model, so it works with zero Wi-Fi after the first open.
-        globPatterns: ['**/*.{js,css,html,png,svg,glb,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,png,svg,glb,json,webmanifest}'],
         maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
         cleanupOutdatedCaches: true,
       },

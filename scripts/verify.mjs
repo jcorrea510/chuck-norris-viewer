@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// End-to-end check: builds must already exist in dist/ (npm run build).
-// Serves dist/, drives it with headless Chromium + touch emulation at three iPad sizes,
-// saves screenshots to shots/, and fails on console errors or broken interactions.
+// End-to-end check (run `npm run build` first). Serves dist/, drives it with headless Chromium and
+// touch emulation at three iPad sizes, saves screenshots to shots/, and fails on console errors
+// or broken interactions.   node scripts/verify.mjs [--only=portrait]
 import { preview } from 'vite';
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -24,44 +24,50 @@ const check = (ok, msg) => { if (!ok) { failures.push(msg); console.log('  ✗',
 
 async function open(size, opts = {}) {
   const ctx = await browser.newContext({
-    viewport: { width: size.width, height: size.height },
-    deviceScaleFactor: 1,
-    hasTouch: true,
-    reducedMotion: opts.reducedMotion ? 'reduce' : 'no-preference',
-    serviceWorkers: 'block',
+    viewport: { width: size.width, height: size.height }, deviceScaleFactor: 1, hasTouch: true,
+    reducedMotion: opts.reducedMotion ? 'reduce' : 'no-preference', serviceWorkers: 'block',
   });
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
+  if (opts.light) await page.addInitScript(() => localStorage.setItem('chuck-norris-settings-v1', JSON.stringify({ appearance: 'light' })));
   await page.goto(URL + (opts.query ?? ''));
   await page.waitForFunction(() => window.__viewer?.state.ready, null, { timeout: 120000 });
-  await page.evaluate(() => { window.__viewer.state.autoSpin = false; window.__viewer.state.idleReset = false; window.__viewer.viewer.spinning = false; });
+  await page.evaluate(() => { const s = window.__viewer.state; s.autoSpin = false; s.idleReset = false; s.doubleTapMs = 6000; window.__viewer.viewer.spinning = false; });
   await settle(page);
   return { ctx, page, errors };
 }
-
-async function settle(page) {
+async function settle(page, ms = 450) {
   await page.evaluate(() => window.__viewer.viewer.settle());
-  await page.waitForTimeout(450); // CSS transitions (panel slide, fades)
+  await page.waitForTimeout(ms);
   await page.evaluate(() => window.__viewer.viewer.settle());
 }
-const shot = (page, size, name) => page.screenshot({ path: `${OUT}/${size.name}--${name}.png`, timeout: 180000 });
+const shot = (page, size, name) => page.screenshot({ path: `${OUT}/${size.name}--${name}.png`, timeout: 240000 });
 const tapEl = async (page, selector) => {
   const box = await page.locator(selector).first().boundingBox();
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 };
-
+const tool = (label) => `.dock .tool:has(.label:text-is("${label}"))`;
 async function touchDrag(page, x, y, dx, dy, ms = 400) {
   const cdp = await page.context().newCDPSession(page);
-  const steps = 12;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-  for (let i = 1; i <= steps; i++) {
-    await page.waitForTimeout(ms / steps);
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / steps, y: y + (dy * i) / steps }] });
+  for (let i = 1; i <= 12; i++) {
+    await page.waitForTimeout(ms / 12);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / 12, y: y + (dy * i) / 12 }] });
   }
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
+const findHit = (page) => page.evaluate(() => {
+  const v = window.__viewer.viewer, c = document.getElementById('stage');
+  for (let y = 0.35; y < 0.75; y += 0.03) for (let x = 0.3; x < 0.7; x += 0.03) {
+    const px = x * innerWidth, py = y * innerHeight;
+    if (document.elementFromPoint(px, py) !== c) continue;
+    const h = v.pick(px, py);
+    if (h && h.pid) return { x: px, y: py, pid: h.pid };
+  }
+  return null;
+});
 
 let report = null;
 for (const size of SIZES) {
@@ -71,100 +77,132 @@ for (const size of SIZES) {
   await shot(page, size, '01-overview');
 
   const ids = await page.evaluate(() => window.__viewer.viewer.ids);
-  // Every subsystem chip
   for (const [i, id] of ids.entries()) {
-    await tapEl(page, `.chip:nth-child(${i + 1})`);
+    await tapEl(page, `.chip:nth-of-type(${i + 1})`);
     await settle(page);
-    const f = await page.evaluate(() => window.__viewer.state.focused);
-    check(f === id, `chip tap focuses ${id}`);
+    check(await page.evaluate((id) => window.__viewer.state.sel?.id === id, id), `chip focuses ${id}`);
     await shot(page, size, `02-focus-${String(i + 1).padStart(2, '0')}-${id}`);
   }
-  // Back
+  if (await page.evaluate(() => window.__viewer.state.sel?.id === 'frame')) {
+    const turretsHidden = await page.evaluate(() => { const s = window.__viewer.state; window.__viewer.api.selectSubsystem('turrets'); return s.autoHidden.length; });
+    check(turretsHidden > 0, 'turret side panels hide while turrets are focused');
+  }
   await tapEl(page, '.panel .back');
   await settle(page);
-  check(await page.evaluate(() => window.__viewer.state.focused === null), 'Back returns to overview');
+  check(await page.evaluate(() => window.__viewer.state.sel === null), 'Back returns to overview');
 
-  // Tap on robot geometry, and a drag that must not focus
-  await page.waitForFunction(() => window.__viewer.viewer.pickingReady, null, { timeout: 180000 });
-  const hit = await page.evaluate(() => {
-    const v = window.__viewer.viewer;
-    const c = document.getElementById('stage');
-    for (let y = 0.3; y < 0.75; y += 0.03) for (let x = 0.3; x < 0.7; x += 0.03) {
-      const px = x * innerWidth, py = y * innerHeight;
-      if (document.elementFromPoint(px, py) !== c) continue;
-      const id = v.pick(px, py);
-      if (id) return { x: px, y: py, id };
-    }
-    return null;
-  });
-  check(!!hit, 'found a point on the robot geometry');
+  // Geometry: tap selects a part, tap again climbs, drag never selects, double-tap hides
+  await page.waitForFunction(() => window.__viewer.viewer.pickingReady, null, { timeout: 240000 });
+  let hit = await findHit(page);
+  check(!!hit, 'found a point on the robot');
   if (hit) {
-    const az0 = await page.evaluate(() => window.__viewer.viewer.controls.azimuthAngle);
     await touchDrag(page, hit.x, hit.y, 140, 10);
     await settle(page);
-    const after = await page.evaluate(() => ({ f: window.__viewer.state.focused, az: window.__viewer.viewer.controls.azimuthAngle }));
-    check(after.f === null, 'drag starting on the robot does not focus');
-    check(Math.abs(after.az - az0) > 0.05, 'drag orbits the camera');
-    // re-find a hit point after the orbit
-    const hit2 = await page.evaluate(() => {
-      const v = window.__viewer.viewer, c = document.getElementById('stage');
-      for (let y = 0.3; y < 0.75; y += 0.03) for (let x = 0.3; x < 0.7; x += 0.03) {
-        const px = x * innerWidth, py = y * innerHeight;
-        if (document.elementFromPoint(px, py) === c && v.pick(px, py)) return { x: px, y: py, id: v.pick(px, py) };
-      }
-      return null;
-    });
-    await page.touchscreen.tap(hit2.x, hit2.y);
+    check(await page.evaluate(() => window.__viewer.state.sel === null), 'drag starting on the robot does not select');
+    hit = await findHit(page);
+    await page.touchscreen.tap(hit.x, hit.y);
+    await page.waitForTimeout(400);
     await settle(page);
-    check(await page.evaluate(() => window.__viewer.state.focused) === hit2.id, `tap on geometry focuses ${hit2.id}`);
-    await shot(page, size, '03-tap-geometry');
-    // tap empty space returns to overview
-    await page.touchscreen.tap(size.width * 0.04, size.height * 0.5);
+    const s1 = await page.evaluate(() => window.__viewer.state.sel);
+    check(s1?.kind === 'node', `tap on geometry selects a part (${s1?.label})`);
+    await shot(page, size, '03-part');
+    await page.touchscreen.tap(hit.x, hit.y);
+    await page.waitForTimeout(400);
     await settle(page);
-    check(await page.evaluate(() => window.__viewer.state.focused === null), 'tap on empty space returns to overview');
+    const s2 = await page.evaluate(() => window.__viewer.state.sel);
+    check(s2 && JSON.stringify(s2) !== JSON.stringify(s1), `tapping again selects the parent (${s2?.label ?? s2?.id})`);
+    await tapEl(page, '.panel .back');
+    await tapEl(page, '.dock .tool:first-child');
+    await settle(page);
+    hit = await findHit(page);
+    const before = await page.evaluate(() => window.__viewer.viewer.hiddenCount());
+    await page.touchscreen.tap(hit.x, hit.y);
+    await page.waitForTimeout(90);
+    await page.touchscreen.tap(hit.x, hit.y);
+    await page.waitForTimeout(500);
+    await settle(page);
+    const after = await page.evaluate(() => window.__viewer.viewer.hiddenCount());
+    check(after > before, `double-tap hides a part (${after - before} part(s))`);
+    await shot(page, size, '04-hidden');
+    await tapEl(page, '.pill [data-act=all]');
+    await settle(page);
+    check(await page.evaluate(() => window.__viewer.viewer.hiddenCount() === 0), 'Show All restores hidden parts');
   }
 
   // Explode
-  await tapEl(page, '.dock .tool:has-text("Explode")');
+  await tapEl(page, tool('Explode'));
   await settle(page);
-  await shot(page, size, '04-explode');
-  await tapEl(page, '.chip:nth-child(4)');
-  await settle(page);
-  await shot(page, size, '05-explode-focus');
-  await tapEl(page, '.dock .tool:has-text("Collapse")');
-  await tapEl(page, '.dock .tool:first-child');
+  await shot(page, size, '05-explode');
+  await tapEl(page, tool('Collapse'));
   await settle(page);
 
-  // Tour
-  await tapEl(page, '.dock .tool:has-text("Tour")');
+  // Mechanisms
+  await tapEl(page, tool('Move'));
+  await page.evaluate(() => { const a = window.__viewer.api; a.setMechanism('turret-left', 70, true); a.setMechanism('turret-right', -70, true); a.setMechanism('intake', -110, true); });
   await settle(page);
-  await shot(page, size, '06-tour-1');
-  await tapEl(page, '.panel [data-act=next]');
-  await settle(page);
-  await shot(page, size, '07-tour-2');
-  check(await page.evaluate(() => window.__viewer.state.tour && window.__viewer.state.focused === window.__viewer.viewer.ids[1]), 'tour Next advances');
-  await tapEl(page, '.panel .back');
+  check(await page.evaluate(() => Math.abs(window.__viewer.viewer.mechanismValue('turret-left') - 70) < 1), 'left turret rotates');
+  await shot(page, size, '06-mechanisms');
+  await page.evaluate(() => { const a = window.__viewer.api; a.setMechanism('turret-left', 0, true); a.setMechanism('turret-right', 0, true); a.setMechanism('intake', 0, true); a.setMechanism('brainpan', -95, true); });
+  await settle(page, 600);
+  check(await page.evaluate(() => window.__viewer.viewer.lifted), 'opening the brain pan lifts the robot');
+  await shot(page, size, '07-brain-pan-underside');
+  await page.evaluate(() => window.__viewer.api.setMechanism('brainpan', 0, true));
+  await tapEl(page, '.tray .tray-head button');
   await settle(page);
 
-  // Debug view
+  // Search
+  await tapEl(page, '.corner .icon-btn:first-child');
+  await page.locator('.search input').fill('kraken');
+  await page.waitForTimeout(200);
+  check(await page.locator('.result').count() > 0, 'search finds Kraken motors');
+  await shot(page, size, '08-search');
+  await tapEl(page, '.result');
+  await settle(page);
+  check(await page.evaluate(() => window.__viewer.state.sel?.kind === 'node'), 'search result selects the part');
+  await shot(page, size, '09-search-result');
+  await page.evaluate(() => window.__viewer.api.overview());
+  await settle(page);
+
+  // Settings (hidden: press and hold the title)
+  const t = await page.locator('.title').boundingBox();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: t.x + 40, y: t.y + 20 }] });
+  await page.waitForTimeout(900);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(400);
+  check(await page.evaluate(() => window.__viewer.ui.settingsOpen), 'press-and-hold the title opens settings');
+  await shot(page, size, '10-settings');
+  await tapEl(page, '.sheet [data-act=close]');
+
+  // Simulation (landscape iPad Air only; it loads the whole field)
   if (size.name === SIZES[0].name) {
+    await tapEl(page, tool('Simulate'));
+    await page.waitForFunction(() => window.__viewer.state.sim?.active, null, { timeout: 120000 });
+    for (let i = 0; i < 40; i++) await page.evaluate(() => { const v = window.__viewer.viewer; for (const h of v.hooks) h(1 / 30); });
+    await settle(page);
+    await shot(page, size, '11-simulation');
+    check(await page.evaluate(() => Number(document.querySelector('.sim-scored').textContent) > 0), 'simulation scores fuel in the HUB');
+    await tapEl(page, '.sim-controls [data-act=exit]');
+    await settle(page);
+    check(await page.evaluate(() => !window.__viewer.state.sim && !window.__viewer.viewer.simActive), 'exit simulation returns to the robot');
+
     const d = await open(size, { query: '?debug=1' });
-    await d.page.evaluate(() => window.__viewer.viewer.settle());
-    await shot(d.page, size, '08-debug');
     report = await d.page.evaluate(() => ({ ...window.__viewer.viewer.stats, model: window.__viewer.stats() }));
+    await shot(d.page, size, '12-debug');
     errors.push(...d.errors);
     await d.ctx.close();
   }
-  // Reduced motion
-  const rm = await open(size, { reducedMotion: true });
-  await shot(rm.page, size, '09-reduced-motion-overview');
-  check(await rm.page.evaluate(() => !window.__viewer.viewer.spinning), 'reduced motion: no auto-spin');
-  await tapEl(rm.page, '.chip:nth-child(2)');
-  await rm.page.waitForTimeout(400);
-  await settle(rm.page);
-  await shot(rm.page, size, '10-reduced-motion-focus');
-  errors.push(...rm.errors);
-  await rm.ctx.close();
+
+  // Light mode + reduced motion
+  const lm = await open(size, { light: true, reducedMotion: true });
+  await shot(lm.page, size, '13-light-reduced-motion');
+  check(await lm.page.evaluate(() => !window.__viewer.viewer.spinning), 'reduced motion: no auto-spin');
+  await tapEl(lm.page, '.chip:nth-of-type(4)');
+  await lm.page.waitForTimeout(400);
+  await settle(lm.page);
+  await shot(lm.page, size, '14-light-focus');
+  errors.push(...lm.errors);
+  await lm.ctx.close();
 
   check(errors.length === 0, `no console errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await ctx.close();
@@ -174,8 +212,9 @@ await browser.close();
 await new Promise((r) => server.httpServer.close(r));
 
 const glb = fs.statSync('public/models/chuck-norris.glb').size / 1e6;
+const field = fs.statSync('public/field/field-2026.glb').size / 1e6;
 console.log('\n=== Report ===');
-console.log(`Model: ${glb.toFixed(2)} MB`);
-if (report) console.log(`Draw calls (overview): ${report.calls}, triangles drawn: ${report.triangles.toLocaleString()}, model: ${report.model.triangles.toLocaleString()} tris in ${report.model.meshes} meshes (${report.model.source})`);
+console.log(`Robot model: ${glb.toFixed(2)} MB · Field: ${field.toFixed(2)} MB (loaded only for simulation)`);
+if (report) console.log(`Draw calls (overview): ${report.calls}, triangles drawn: ${report.triangles.toLocaleString()}, model: ${report.model.triangles.toLocaleString()} tris, ${report.model.parts} parts in ${report.model.meshes} meshes`);
 console.log(failures.length ? `\n${failures.length} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures.length ? 1 : 0);

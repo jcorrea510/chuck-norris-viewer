@@ -9,8 +9,11 @@ export interface Subsystem {
   icon: string;
   summary: string;
   specs: Spec[];
-  talkingPoints: string[];
+  /** 3-4 very short bullets. */
+  highlights: string[];
   match: string[];
+  /** Parts (by name) hidden while this subsystem is selected, e.g. panels that block the view. */
+  hideWhenFocused?: string[];
   /** Optional camera angle override, in degrees. */
   camera?: { azimuth?: number; elevation?: number; zoom?: number };
 }
@@ -32,3 +35,4 @@ export const shortName = (s: Subsystem) => s.short ?? s.name.split(/[\s&]+/)[0];
 
 /** Where the build step writes the optimized model (relative to the site root). */
 export const MODEL_URL = 'models/chuck-norris.glb';
+export const PARTS_URL = 'models/chuck-norris.parts.json';
