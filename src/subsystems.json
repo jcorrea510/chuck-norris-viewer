@@ -4,8 +4,8 @@
     "highlights: 3-4 very short bullets (about five words each). specs: label/value pairs.",
     "robot.front: which way the robot faces at the start. \"auto\" points the intake at the viewer; or use +x, -x, +z, -z.",
     "match: words from Onshape sub-assembly or part names. Parts that match nothing go to Frame & Structure.",
-    "hideWhenFocused: parts hidden while that subsystem is selected (e.g. panels that block the view).",
-    "mechanisms: moving parts (CAD coordinates in meters). \"fourbar\" = parallel four-bar: crank pivot, follower pivot and the crank's far joint. After changing, run: npm run model"
+    "hideWhenFocused: parts hidden while that subsystem is selected (e.g. panels that block the view). frameOn: parts the camera centers on when the subsystem is selected (default: all of them).",
+    "mechanisms: moving parts (CAD coordinates in meters). \"fourbar\" = parallel four-bar: crank pivot, follower pivot and the crank's far joint. ownsParts: false keeps the moving parts in their own subsystem (the brain pan cover stays Frame, its slider shows under Electrical). After changing, run: npm run model"
   ],
   "robot": {
     "name": "Chuck Norris",
@@ -237,7 +237,6 @@
         "Clean, labeled, serviceable wiring"
       ],
       "match": [
-        "Brain Pan",
         "Power Distribution",
         "PDH",
         "Breaker",
@@ -248,7 +247,14 @@
         "Signal Light",
         "MPM",
         "Battery",
-        "Brain Pan Polycarb"
+        "Battery Plug"
+      ],
+      "frameOn": [
+        "Power Distribution",
+        "Simplified MPM",
+        "Breaker",
+        "Robot Battery",
+        "Robot Radio"
       ]
     },
     {
@@ -297,7 +303,6 @@
         "within": "Left Turret Assembly",
         "match": [
           "Shooter Assembly",
-          "Turret Tubes Assembly",
           "200T 20DP Turntable Gear"
         ]
       },
@@ -323,7 +328,6 @@
         "within": "Right Turret Assembly",
         "match": [
           "Shooter Assembly",
-          "Turret Tubes Assembly",
           "200T 20DP Turntable Gear"
         ]
       },
@@ -411,7 +415,8 @@
         "Closed": 0,
         "Open": -95
       },
-      "liftRobot": 0.5
+      "liftRobot": 0.5,
+      "ownsParts": false
     },
     {
       "id": "module-1",

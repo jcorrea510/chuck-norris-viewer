@@ -3,7 +3,7 @@ import { registerSW } from 'virtual:pwa-register';
 import * as THREE from 'three';
 import { Viewer, type Insets, type FrameSpec, type PickHit } from './viewer';
 import { UI, type MechView, type ItemView } from './ui';
-import { robot, subsystems, subsystemById, MODEL_URL, PARTS_URL } from './config';
+import { robot, subsystems, mechanismSubsystem, subsystemById, MODEL_URL, PARTS_URL } from './config';
 import { kindLabel } from './parts';
 import { knownFor } from './knownparts';
 import { sound } from './sound';
@@ -151,7 +151,7 @@ const visible = (pids: number[]) => pids.filter((p) => viewer.state.isVisible(p)
 function mechanismsForSubsystem(id: string) {
   const P = viewer.parts;
   if (!P) return [];
-  return [...viewer.mechanisms.keys()].filter((m) => P.partsOfMechanism(m).some((p) => P.subsystemOf(P.nodeOfPart(p)) === id));
+  return [...viewer.mechanisms.keys()].filter((m) => mechanismSubsystem.get(m) === id || P.partsOfMechanism(m).some((p) => P.subsystemOf(P.nodeOfPart(p)) === id));
 }
 
 function selectSubsystem(id: string, spec?: FrameSpec) {
@@ -174,7 +174,13 @@ function selectSubsystem(id: string, spec?: FrameSpec) {
   ui.setFocusedClass(true);
   ui.showHint(false);
   state.interacted = true;
-  if (pids.length) viewer.frameParts(visible(pids), insets(), spec ?? viewer.subsystemAngle(id));
+  let framePids = visible(pids);
+  if (s.frameOn?.length && viewer.parts) {
+    const inSub = new Set(framePids);
+    const core = viewer.parts.partsMatching(s.frameOn).filter((p) => inSub.has(p));
+    if (core.length) framePids = core;
+  }
+  if (pids.length) viewer.frameParts(framePids, insets(), spec ?? viewer.subsystemAngle(id));
   sound.play('focus');
 }
 

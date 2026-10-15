@@ -273,7 +273,7 @@ async function main() {
       const cadBox = cadBoxOf(mesh, m);
       const hit = mechanismFor(here, cadBox);
       const mech = hit?.mech ?? null;
-      const sub = mech?.subsystem ?? sub0;
+      const sub = mech && mech.ownsParts !== false ? mech.subsystem ?? sub0 : sub0;
       for (const mm of mechanisms) {
         if (mm.pivotPart && !pivots.has(mm.id) && mm.pivotPart.every((p) => here.some((h) => clean(h).toLowerCase().includes(p.toLowerCase())))) {
           pivots.set(mm.id, cadBox.lo.map((v, k) => (v + cadBox.hi[k]) / 2));

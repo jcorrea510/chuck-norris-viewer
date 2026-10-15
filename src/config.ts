@@ -14,6 +14,8 @@ export interface Subsystem {
   match: string[];
   /** Parts (by name) hidden while this subsystem is selected, e.g. panels that block the view. */
   hideWhenFocused?: string[];
+  /** Parts (by name) the camera centers on when the subsystem is selected. Default: all of them. */
+  frameOn?: string[];
   /** Optional camera angle override, in degrees. */
   camera?: { azimuth?: number; elevation?: number; zoom?: number };
 }
@@ -30,6 +32,8 @@ export interface RobotConfig {
 }
 
 export const robot = raw.robot as RobotConfig;
+/** Which subsystem's panel shows each mechanism's slider. */
+export const mechanismSubsystem = new Map((raw.mechanisms as { id: string; subsystem: string }[]).map((m) => [m.id, m.subsystem]));
 export const subsystems = raw.subsystems as Subsystem[];
 export const subsystemById = new Map(subsystems.map((s) => [s.id, s]));
 export const shortName = (s: Subsystem) => s.short ?? s.name.split(/[\s&]+/)[0];
