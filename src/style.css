@@ -783,3 +783,99 @@ input[type='range']::-moz-range-thumb { width: 28px; height: 28px; border-radius
 
 /* settings gear: always visible, top right (also in the simulation bar) */
 .sim-controls .tool.icon-only { width: 46px; padding: 0; justify-content: center; }
+
+/* ------------------------------------------------------------------ driving it yourself */
+.sim-dot.you { background: #ffd34a; box-shadow: 0 0 8px #ffd34a; }
+.sim-driver {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 10px; border-radius: 16px;
+  background: rgba(255, 211, 74, 0.18); color: #ffe08a; font-size: 14px; font-weight: 600; white-space: nowrap;
+}
+.sim-driver .icon { width: 16px; height: 16px; }
+.sim-driver-back { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 12px; background: rgba(255, 255, 255, 0.14); color: var(--text); }
+.sim-driver-back .icon { width: 14px; height: 14px; }
+.sim-driver.warn { background: rgba(255, 69, 58, 0.2); color: #ff8a80; }
+:root[data-theme='light'] .sim-driver { color: #8a5a00; background: rgba(255, 190, 40, 0.28); }
+.sim-hint {
+  position: absolute; top: calc(var(--safe-t) + 74px); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 14px; border-radius: 18px;
+  font-size: 14px; color: var(--text-2); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden;
+}
+.sim-hint .icon { width: 18px; height: 18px; color: var(--holo); flex: none; }
+.sim-hint-text { overflow: hidden; text-overflow: ellipsis; }
+kbd {
+  display: inline-block; min-width: 20px; padding: 1px 6px; margin: 0 1px; border-radius: 6px; text-align: center;
+  font: 600 12px/18px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: var(--text);
+  background: var(--fill-strong); box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+.app.sim .toast { top: calc(var(--safe-t) + 118px); }
+
+/* on-screen sticks and buttons */
+.drivepad { position: absolute; inset: 0; pointer-events: none !important; opacity: 0; transition: opacity 0.4s var(--ease); }
+.drivepad.on { opacity: 1; }
+.app.pit .drivepad { opacity: 0 !important; }
+.dp-zone {
+  position: absolute; bottom: calc(var(--dock-bottom) + var(--dock-h) + 10px); height: 38vh; width: 30vw;
+  touch-action: none; -webkit-user-select: none; user-select: none;
+}
+.drivepad.on .dp-zone, .drivepad.on .dp-btn { pointer-events: auto !important; }
+.dp-move { left: var(--safe-l); }
+.dp-turn { right: var(--safe-r); width: 24vw; }
+.dp-base {
+  position: absolute; left: 50%; top: 62%; width: 132px; height: 132px; margin: -66px 0 0 -66px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.11));
+  border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.25);
+  opacity: 0.5; transition: opacity 0.2s var(--ease);
+}
+.dp-base.dp-wide { width: 168px; height: 72px; margin: -36px 0 0 -84px; border-radius: 36px; }
+.dp-zone.active .dp-base { opacity: 1; transition: none; }
+.dp-knob {
+  position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.82); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.dp-zone.active .dp-knob { background: #fff; }
+.dp-tag { position: absolute; left: 50%; top: calc(62% + 74px); transform: translateX(-50%); font-size: 12px; font-weight: 600; color: var(--text-3); letter-spacing: 0.04em; }
+.dp-zone.active .dp-tag { opacity: 0; }
+.dp-buttons {
+  position: absolute; right: calc(var(--safe-r) + 18px); bottom: calc(var(--dock-bottom) + var(--dock-h) + 38vh + 4px);
+  display: grid; grid-template-columns: auto auto; gap: 10px; align-items: end; justify-items: center;
+}
+.dp-btn {
+  width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; align-content: center; gap: 1px;
+  background: rgba(20, 22, 28, 0.55); border: 1px solid rgba(255, 255, 255, 0.24); color: #fff;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); touch-action: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.02em; transition: transform 0.12s var(--ease), background-color 0.12s;
+}
+.dp-btn .icon { width: 22px; height: 22px; }
+.dp-btn.on { transform: scale(0.92); background: rgba(255, 255, 255, 0.85); color: #111; }
+.dp-shoot { width: 84px; height: 84px; background: rgba(158, 31, 64, 0.72); grid-row: span 2; }
+.dp-shoot .icon { width: 30px; height: 30px; }
+.dp-shoot.on { background: #ff4f6d; color: #fff; }
+.app.portrait .dp-zone { height: 30vh; width: 44vw; }
+.app.portrait .dp-turn { width: 40vw; }
+.app.portrait .dp-buttons { bottom: calc(var(--dock-bottom) + var(--dock-h) + 30vh + 4px); }
+
+/* the Controls page */
+.sheet.wide { width: min(620px, 100%); }
+.kb-pad { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px; background: var(--fill); font-size: 15px; color: var(--text-2); }
+.kb-pad .icon { width: 22px; height: 22px; color: var(--holo); flex: none; }
+.kb-pad b { color: var(--text); }
+.sheet-body h3 { display: flex; justify-content: space-between; align-items: center; }
+.kb-cols { display: grid; grid-template-columns: 150px 120px; gap: 8px; }
+.kb-cols span { display: inline-flex; align-items: center; gap: 4px; }
+.kb-cols .icon { width: 14px; height: 14px; }
+.kb-list { display: grid; gap: 2px; }
+.kb-row { display: grid; grid-template-columns: 1fr 150px 120px; gap: 8px; align-items: center; min-height: 48px; border-bottom: 0.5px solid var(--hairline); }
+.kb-row:last-child { border-bottom: 0; }
+.kb-label { display: flex; flex-direction: column; min-width: 0; }
+.kb-label b { font-size: 15px; font-weight: 600; }
+.kb-label span { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kb-key { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px; min-height: 36px; border-radius: 10px; background: var(--fill); padding: 2px 6px; }
+.kb-key i { font-style: normal; font-size: 11px; color: var(--text-3); margin: 0 3px; }
+.kb-key em { font-style: normal; font-size: 13px; color: var(--text-3); }
+.kb-key.fixed { background: transparent; }
+.kb-key.fixed kbd { background: transparent; box-shadow: none; color: var(--text-3); font-weight: 500; }
+.kb-key.listening { background: var(--accent); animation: blink 1s ease-in-out infinite; }
+.kb-key.listening kbd { background: transparent; box-shadow: none; color: #fff; }
+.app.portrait .kb-row, .app.portrait .kb-cols { grid-template-columns: 1fr 104px 84px; }
+.app.portrait .kb-cols { grid-template-columns: 104px 84px; }
+.app.portrait .kb-label span { display: none; }

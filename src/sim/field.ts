@@ -11,6 +11,8 @@ export class FieldGrid {
   readonly solid: Uint8Array;
   /** distance (m) from each cell center to the nearest solid cell */
   readonly dist: Float32Array;
+  /** signed distance (m) to the nearest solid surface: positive in the open, negative inside */
+  readonly sdf: Float32Array;
 
   constructor(g: GridData, hubs: HubData[]) {
     this.x0 = g.x0; this.z0 = g.z0; this.cell = g.cell; this.nx = g.nx; this.nz = g.nz;
@@ -24,7 +26,13 @@ export class FieldGrid {
     }
     // The HUB is a closed structure at robot height even where its internal ramps sit higher than the rays.
     for (const h of hubs) this.fillSolid(h.min[0], h.min[2], h.max[0], h.max[2]);
-    this.dist = this.distanceField();
+    this.dist = this.distanceField(this.solid);
+    const free = new Uint8Array(n);
+    for (let i = 0; i < n; i++) free[i] = this.solid[i] ? 0 : 1;
+    const inside = this.distanceField(free);
+    this.sdf = new Float32Array(n);
+    const h = this.cell / 2;
+    for (let i = 0; i < n; i++) this.sdf[i] = this.solid[i] ? -(inside[i] - h) : this.dist[i] - h;
   }
 
   private fillSolid(xa: number, za: number, xb: number, zb: number) {
@@ -32,12 +40,12 @@ export class FieldGrid {
     for (let k = Math.max(0, ka); k <= Math.min(this.nz - 1, kb); k++) for (let i = Math.max(0, ia); i <= Math.min(this.nx - 1, ib); i++) this.solid[k * this.nx + i] = 1;
   }
 
-  /** Two-pass chamfer distance transform (3-4 weights), in meters. */
-  private distanceField(): Float32Array {
+  /** Two-pass chamfer distance transform, in meters: distance from each cell to the nearest `src` cell. */
+  private distanceField(src: Uint8Array): Float32Array {
     const { nx, nz } = this;
     const INF = 1e9;
     const d = new Float32Array(nx * nz);
-    for (let i = 0; i < d.length; i++) d[i] = this.solid[i] ? 0 : INF;
+    for (let i = 0; i < d.length; i++) d[i] = src[i] ? 0 : INF;
     const a = 1, b = Math.SQRT2;
     for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
       const o = k * nx + i;
@@ -75,6 +83,26 @@ export class FieldGrid {
   }
   isSolid(x: number, z: number) { const o = this.idx(x, z); return o < 0 || this.solid[o] === 1; }
   distAt(x: number, z: number) { const o = this.idx(x, z); return o < 0 ? 0 : this.dist[o]; }
+
+  /**
+   * Signed distance to the nearest wall or field element (bilinear, so contacts are smooth):
+   * positive in the open, negative when overlapping. Outside the grid counts as solid.
+   */
+  clearance(x: number, z: number): number {
+    const fx = (x - this.x0) / this.cell - 0.5, fz = (z - this.z0) / this.cell - 0.5;
+    const i = Math.floor(fx), k = Math.floor(fz);
+    const tx = fx - i, tz = fz - k;
+    const d = (ii: number, kk: number) => (ii < 0 || kk < 0 || ii >= this.nx || kk >= this.nz) ? -0.05 : this.sdf[kk * this.nx + ii];
+    return (d(i, k) * (1 - tx) + d(i + 1, k) * tx) * (1 - tz) + (d(i, k + 1) * (1 - tx) + d(i + 1, k + 1) * tx) * tz;
+  }
+
+  /** Unit normal pointing out of the nearest obstacle (gradient of the signed distance). */
+  normal(x: number, z: number): [number, number] {
+    const e = this.cell;
+    const gx = this.clearance(x + e, z) - this.clearance(x - e, z), gz = this.clearance(x, z + e) - this.clearance(x, z - e);
+    const l = Math.hypot(gx, gz);
+    return l < 1e-6 ? [0, 0] : [gx / l, gz / l];
+  }
 
   /** Smooth floor height (bilinear over cell centers; solid cells use their free neighbours' level). */
   floor(x: number, z: number): number {

@@ -51,6 +51,8 @@ export interface UiHandlers {
   onSimMode(mode: SimMode): void;
   onSimRestart(): void;
   onSimExit(): void;
+  onSimControls(): void;
+  onSimHandBack(): void;
 }
 
 export interface ItemView {
@@ -209,7 +211,9 @@ export class UI {
         <span class="sim-stat"><b class="sim-scored">0</b> scored</span>
         <span class="sim-stat"><b class="sim-stored">0</b><i class="sim-cap"></i> in robot</span>
         <span class="sim-stat sim-bps-wrap"><b class="sim-bps">0.0</b> fuel/s</span>
+        <button class="sim-driver" hidden aria-label="Give control back to the robot">${icon('hand')}<span class="sim-driver-text">You’re driving</span><span class="sim-driver-back">${icon('bot')}</span></button>
       </div>
+      <div class="sim-hint glass-clear" hidden>${icon('gamepad-2')}<span class="sim-hint-text"></span></div>
       <div class="sim-controls glass">
         <div class="seg sim-mode" role="group" aria-label="Simulation mode">
           <button data-mode="auto" aria-pressed="true">Auto</button><button data-mode="endless" aria-pressed="false">Endless</button>
@@ -219,6 +223,7 @@ export class UI {
           ${SIM_VIEWS.map((v) => `<button data-view="${v.id}" title="${v.title}" aria-pressed="${v.id === 'tv'}">${v.label}</button>`).join('')}
         </div>
         <div class="dock-sep"></div>
+        <button class="tool" data-act="controls" aria-label="Driving controls">${icon('gamepad-2')}<span class="label">Controls</span></button>
         <button class="tool" data-act="restart">${icon('rotate-ccw')}<span class="label">Restart</span></button>
         <button class="tool icon-only" data-act="settings" aria-label="Settings" title="Settings">${icon('settings')}</button>
         <button class="tool" data-act="exit">${icon('x')}<span class="label">Exit</span></button>
@@ -233,6 +238,8 @@ export class UI {
       </div>`;
     this.simHud.querySelectorAll<HTMLButtonElement>('.sim-view button').forEach((b) => b.addEventListener('click', () => handlers.onSimView(b.dataset.view as SimView)));
     this.simHud.querySelector('[data-act=restart]')!.addEventListener('click', () => handlers.onSimRestart());
+    this.simHud.querySelector('[data-act=controls]')!.addEventListener('click', () => handlers.onSimControls());
+    this.simHud.querySelector('.sim-driver')!.addEventListener('click', () => handlers.onSimHandBack());
     this.simHud.querySelector('[data-act=exit]')!.addEventListener('click', () => handlers.onSimExit());
     this.simHud.querySelector('[data-act=settings]')!.addEventListener('click', () => handlers.onSettingsRequest());
     this.simHud.querySelector('[data-act=replay]')!.addEventListener('click', () => handlers.onSimMode('auto'));
@@ -404,6 +411,12 @@ export class UI {
     if (s.time !== null) timer.textContent = `0:${String(Math.ceil(s.time)).padStart(2, '0')}`;
     this.simHud.querySelectorAll<HTMLButtonElement>('.sim-mode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === s.mode)));
     this.simHud.querySelectorAll<HTMLButtonElement>('.sim-view button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+    // who is driving: you (and when the robot takes back over), or the robot
+    const drv = q<HTMLButtonElement>('.sim-driver');
+    drv.hidden = s.control !== 'driver';
+    if (s.control === 'driver') q('.sim-driver-text').textContent = s.resumeIn !== null && s.resumeIn < 14.5 ? `Robot drives in ${Math.ceil(s.resumeIn)} s` : 'You’re driving';
+    drv.classList.toggle('warn', s.outOfRange);
+    q('.sim-dot').classList.toggle('you', s.control === 'driver');
     const res = q<HTMLElement>('.sim-result');
     res.hidden = !s.ended;
     if (s.ended) q('.sim-result-n').textContent = String(s.scored);
@@ -585,6 +598,8 @@ export class UI {
 
   // ------------------------------------------------------------ settings
   openSettings(open: boolean, s?: Settings) {
+    if (!open && this.sheetClose) { const c = this.sheetClose; this.sheetClose = null; c(); return; }
+    this.sheetEl.classList.remove('wide');
     if (open && s) this.renderSettings(s);
     if (open) this.sheetOpenedAt = performance.now();
     this.settingsEl.hidden = !open;
@@ -702,6 +717,28 @@ export class UI {
     this.toastEl.classList.remove('hidden');
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.add('hidden'), opts.ms ?? 3200);
   }
+
+  /** A hint under the status bar (null hides it). */
+  simHint(text: string | null) {
+    const el = this.simHud.querySelector<HTMLElement>('.sim-hint')!;
+    el.hidden = !text;
+    if (text) el.querySelector('.sim-hint-text')!.innerHTML = text;
+  }
+
+  /** A sheet whose body is built by `wire` (the Controls page). Returns a close function. */
+  openSheet(title: string, wire: (body: HTMLElement) => (() => void) | void, wide = false) {
+    this.sheetEl.innerHTML = `<div class="sheet-head"><h2>${esc(title)}</h2><button class="icon-btn small" data-act="close" aria-label="Close">${icon('x')}</button></div><div class="sheet-body"></div>`;
+    this.sheetEl.classList.toggle('wide', wide);
+    const cleanup = wire(this.sheetEl.querySelector('.sheet-body')!);
+    const close = () => { this.sheetClose = null; this.settingsEl.hidden = true; this.sheetEl.classList.remove('wide'); cleanup?.(); this.handlers.onSettingsOpen(false); };
+    this.sheetEl.querySelector('[data-act=close]')!.addEventListener('click', close);
+    this.sheetOpenedAt = performance.now();
+    this.settingsEl.hidden = false;
+    this.handlers.onSettingsOpen(true);
+    this.sheetClose = close;
+    return close;
+  }
+  private sheetClose: (() => void) | null = null;
 
   /** A short explanatory sheet (used when full screen isn't available in this browser). */
   sheet(title: string, body: string) {

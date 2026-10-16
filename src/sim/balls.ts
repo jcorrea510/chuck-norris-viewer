@@ -47,12 +47,18 @@ export class Balls {
   readonly st: Uint8Array;
   readonly timer: Float32Array;
   private slow: Float32Array;
+  /** seconds a just-launched ball ignores the robot that launched it */
+  private grace: Float32Array;
   // spatial hash
   private readonly hx0 = -8.5; private readonly hz0 = -4.3; private readonly hc = 0.16;
   private readonly hnx: number; private readonly hnz: number;
   private head: Int32Array; private next: Int32Array;
   onScore: ((i: number) => void) | null = null;
   onHubExit: ((i: number) => void) | null = null;
+  /** a ball left the field (or its numbers broke): the world puts it back in play */
+  onLost: ((i: number) => void) | null = null;
+  /** hard landings (speed into the floor, m/s), for sounds */
+  onBounce: ((i: number, speed: number) => void) | null = null;
   scored = 0;
 
   constructor(private field: FieldGrid, private hub: HubShape, start: number[][]) {
@@ -62,6 +68,7 @@ export class Balls {
     this.st = new Uint8Array(this.n);
     this.timer = new Float32Array(this.n);
     this.slow = new Float32Array(this.n);
+    this.grace = new Float32Array(this.n);
     this.hnx = Math.ceil(17 / this.hc); this.hnz = Math.ceil(8.6 / this.hc);
     this.head = new Int32Array(this.hnx * this.hnz);
     this.next = new Int32Array(this.n);
@@ -74,6 +81,7 @@ export class Balls {
       this.vel.fill(0, i * 3, i * 3 + 3);
       this.timer[i] = 0;
       this.slow[i] = 0;
+      this.grace[i] = 0;
       // fuel staged outside the field (behind the alliance walls, in the outposts) stays put
       const [x, , z] = start[i];
       this.st[i] = Math.abs(x) > 8.2 || Math.abs(z) > 4.0 ? S.PARKED : S.REST;
@@ -89,6 +97,7 @@ export class Balls {
     this.vel.set(v, i * 3);
     this.st[i] = S.FLYING;
     this.slow[i] = 0;
+    this.grace[i] = 0.3;
   }
 
   step(dt: number, robot: RobotContact | null) {
@@ -102,6 +111,7 @@ export class Balls {
       }
       if (s !== S.MOVING && s !== S.FLYING) continue;
       const o = i * 3;
+      if (this.grace[i] > 0) this.grace[i] -= dt;
       let x = pos[o], y = pos[o + 1], z = pos[o + 2];
       let vx = vel[o], vy = vel[o + 1], vz = vel[o + 2];
       const fh = field.floor(x, z);
@@ -187,6 +197,7 @@ export class Balls {
       if (ny < fh2 + R) {
         ny = fh2 + R;
         if (vy < -0.7) {
+          if (vy < -2.5) this.onBounce?.(i, -vy);
           vy = -vy * BOUNCE;
           vx *= 0.82; vz *= 0.82;
         } else vy = 0;
@@ -194,16 +205,24 @@ export class Balls {
       }
       pos[o] = nx; pos[o + 1] = ny; pos[o + 2] = nz;
       vel[o] = vx; vel[o + 1] = vy; vel[o + 2] = vz;
+      if (!Number.isFinite(nx + ny + nz + vx + vy + vz) || Math.abs(nx) > 8.6 || Math.abs(nz) > 4.4 || ny < -0.2 || ny > 12) this.lose(i);
     }
     this.collide();
     if (robot) {
       for (let i = 0; i < this.n; i++) {
         const s = st[i];
-        if (s !== S.REST && s !== S.MOVING && s !== S.FLYING) continue;
+        if (s !== S.REST && s !== S.MOVING && s !== S.FLYING || this.grace[i] > 0) continue;
         const dx = pos[i * 3] - robot.x, dz = pos[i * 3 + 2] - robot.z;
         if (dx * dx + dz * dz < 1.3) robot.contact(i, this);
       }
     }
+  }
+
+  private lose(i: number) {
+    this.st[i] = S.PARKED;
+    this.vel.fill(0, i * 3, i * 3 + 3);
+    if (this.onLost) this.onLost(i);
+    else { this.pos[i * 3] = -8.6; this.pos[i * 3 + 1] = 0.9; this.pos[i * 3 + 2] = 3.4; }
   }
 
   private enterHub(i: number) {

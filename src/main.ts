@@ -9,6 +9,7 @@ import { knownFor } from './knownparts';
 import { sound } from './sound';
 import { ACCENTS, defaults, loadSettings, saveSettings, isLight, type Settings } from './settings';
 import type { Simulation, SimMode } from './sim/index';
+import { keyName } from './sim/input';
 
 // ------------------------------------------------------------------ iPad Safari guards
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
@@ -88,6 +89,8 @@ const ui = new UI({
   onSimMode: (mode: SimMode) => { state.sim?.setMode(mode); sound.play('select'); },
   onSimRestart: () => state.sim?.restart(),
   onSimExit: () => exitSim(),
+  onSimControls: () => openControls(),
+  onSimHandBack: () => { state.sim?.handBack(); },
 });
 
 // ------------------------------------------------------------------ settings
@@ -391,18 +394,66 @@ async function enterSim(mode: SimMode = 'auto') {
     const { Simulation } = await import('./sim/index');
     const sim = new Simulation(viewer);
     state.sim = sim;
+    sim.touchControls = touchPadPref();
+    sim.onActivity = () => {
+      touch();
+      if (state.pit) exitPit();
+      if (!drove && sim.world?.control === 'driver') { drove = true; ui.simHint(null); }
+    };
+    sim.onRespawn = () => { ui.toast('Robot reset by the field crew', { icon: 'rotate-ccw' }); sound.play('respawn'); };
+    sim.onPad = (name) => {
+      if (name) { ui.toast(`Controller connected: ${name}`, { icon: 'gamepad-2' }); sound.play('connect'); }
+      controlsPage?.refresh(name);
+      showDriveHint();
+    };
     sim.onStatus = (s) => {
       ui.simStatus(s, sim.view);
       // pit display: a broadcast-style lower third instead of the controls
       if (state.pit && !s.loading) ui.pitShowcase({ kicker: `${robot.name} · ${robot.team}`, title: s.mode === 'auto' ? 'Autonomous' : 'Endless simulation', line: `${s.scored} fuel scored · ${s.phase}` });
     };
     await sim.start(mode);
+    showDriveHint();
   } catch (err) {
     console.error(err);
     ui.toast('The field could not be loaded.', { icon: 'x' });
     exitSim();
   }
 }
+// ---- driving yourself: the Controls page, the on-screen sticks, a first-time hint
+let drove = false;
+let controlsPage: { refresh(name: string | null): void; close(): void } | null = null;
+const coarse = matchMedia('(pointer: coarse)').matches;
+function touchPadPref() {
+  try { const v = localStorage.getItem('chuck-norris-touchpad'); if (v !== null) return v === '1'; } catch { /* ignore */ }
+  return coarse;
+}
+function showDriveHint() {
+  const sim = state.sim;
+  if (!sim || drove) { ui.simHint(null); return; }
+  const k = (a: Parameters<typeof keyLabel>[1]) => `<kbd>${keyLabel(sim, a)}</kbd>`;
+  if (sim.controls.padConnected) ui.simHint('Left stick drives · right stick turns · <kbd>RT</kbd> shoots · <kbd>LT</kbd> intakes');
+  else if (sim.touchControls) ui.simHint('Use the sticks at the bottom to drive');
+  else ui.simHint(`Drive yourself: ${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('turnLeft')}${k('turnRight')} turn · ${k('shoot')} shoot · ${k('intake')} intake`);
+}
+function keyLabel(sim: Simulation, a: 'forward' | 'left' | 'back' | 'right' | 'turnLeft' | 'turnRight' | 'shoot' | 'intake') {
+  return keyName(sim.controls.bindings.keys[a][0] ?? '');
+}
+async function openControls() {
+  const sim = state.sim;
+  if (!sim) return;
+  touch();
+  sound.play('select');
+  const { controlsPage: page } = await import('./sim/controls-page');
+  ui.openSheet('Controls', (body) => {
+    controlsPage = page(body, sim.controls, {
+      touch: sim.touchControls,
+      padName: sim.controls.padConnected,
+      onTouch: (on) => { sim.setTouchControls(on); try { localStorage.setItem('chuck-norris-touchpad', on ? '1' : '0'); } catch { /* ignore */ } showDriveHint(); },
+    });
+    return () => { controlsPage?.close(); controlsPage = null; showDriveHint(); };
+  }, true);
+}
+
 function exitSim() {
   state.sim?.stop();
   state.sim = null;

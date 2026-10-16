@@ -32,6 +32,15 @@ import i_eye_off from 'lucide-static/icons/eye-off.svg?raw';
 import i_focus from 'lucide-static/icons/focus.svg?raw';
 import i_arrow_up_from_line from 'lucide-static/icons/arrow-up-from-line.svg?raw';
 import i_eye from 'lucide-static/icons/eye.svg?raw';
+import i_gamepad from 'lucide-static/icons/gamepad-2.svg?raw';
+import i_keyboard from 'lucide-static/icons/keyboard.svg?raw';
+import i_bot from 'lucide-static/icons/bot.svg?raw';
+import i_smartphone from 'lucide-static/icons/smartphone.svg?raw';
+import i_abd from 'lucide-static/icons/arrow-big-down.svg?raw';
+import i_abu from 'lucide-static/icons/arrow-big-up.svg?raw';
+import i_cdot from 'lucide-static/icons/circle-dot.svg?raw';
+import i_undo from 'lucide-static/icons/undo-2.svg?raw';
+import i_hand from 'lucide-static/icons/hand.svg?raw';
 
 const ICONS: Record<string, string> = {
   move, 'arrow-down-to-line': arrowDownToLine, layers, crosshair, zap, box, house,
@@ -47,6 +56,15 @@ const ICONS: Record<string, string> = {
   'focus': i_focus,
   'arrow-up-from-line': i_arrow_up_from_line,
   'eye': i_eye,
+  'gamepad-2': i_gamepad,
+  'keyboard': i_keyboard,
+  'bot': i_bot,
+  'smartphone': i_smartphone,
+  'arrow-big-down': i_abd,
+  'arrow-big-up': i_abu,
+  'circle-dot': i_cdot,
+  'undo-2': i_undo,
+  'hand': i_hand,
 };
 
 /** Returns inline SVG markup for an icon name; unknown names fall back to a box. */
