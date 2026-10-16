@@ -51,3 +51,8 @@ NEXT on resume:
 - Chromium: CAD regression passes at all three iPad sizes (77 checks); final-build sim suite 44/44 (flicker: all three cameras identical frames).
 - e2e fixes: wait for the robot's reveal animation and UI fades before flicker frames (they aren't flicker); relative camera-blend criterion; longer reload/clock waits for software rendering.
 - Fast-forwarding main to overnight and pushing (deploys the site).
+
+## 11:42 Done
+- main deployed at 10:23 (run 38915279646) with the tested build; live site smoke-tested in Firefox (sim loads, worker physics, scores, no console errors). Docs/clips deployed at 11:41 (run 38925993698).
+- Physics clips in overnight/media/*.jpg (scripts/media.mjs).
+- Open items (BACKLOG "Later"): match-style Hub timing, climbing, a real-iPad test, replacing EDIT values with team measurements.
