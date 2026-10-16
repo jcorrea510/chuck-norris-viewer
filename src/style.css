@@ -878,5 +878,5 @@ kbd {
 .sim-result .tip { margin: 0 0 14px; font-size: 13px; line-height: 18px; color: var(--text-3); }
 .sim-result-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .app.sim .toast { top: calc(var(--safe-t) + 104px); }
-.app.portrait .sim-hs span { display: none; }
+.app.portrait .sim-hs span:not(.icon) { display: none; }
 .app.portrait .sim-hs { width: 44px; padding: 0; justify-content: center; }

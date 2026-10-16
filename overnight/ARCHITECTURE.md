@@ -42,6 +42,43 @@ rAF → Viewer.tick → hooks → Simulation.frame(dt)
 - Cameras: four views plus a pit director; Chase follows robot heading (item 10); stick "forward" follows camera (item 11).
 - A* runs synchronously on the main thread (item 13).
 
-## After tonight
+## New architecture (after tonight)
 
-See the "New architecture" section appended below as it lands.
+```
+main thread                                   sim.worker.ts (Web Worker)
+───────────                                   ──────────────────────────
+rAF → Viewer.tick → Simulation.frame(dt)
+  controls.read()  (keys, gamepad, touch)
+  → field-relative DriverInput ─────tick────▶ Stepper.advance(dt): fixed 120 Hz steps
+                                                 SimWorld.step(input)
+                                                   game (Free Drive / High Score), brain
+                                                   Robot.preStep  (swerve + suspension, battery,
+                                                                   intake, indexer, turrets)
+                                                   Fuel.preStep   (drag, Magnus, rolling, e(v))
+                                                   Hubs.preStep   (net spring-damper)
+                                                   Rapier world.step()
+                                                   Fuel/Hubs/Robot.postStep (poses, scoring)
+  draw latest Frame ◀──────────frame─────────  frameOf(): poses (current + previous step),
+    robot pose (interpolated), mechanisms         mechanism angles, events, status
+    FUEL: 1 InstancedMesh (+1 for contact
+    shadows), squash, seams; net bulge
+    cameras: smooth-damp rigs
+    audio from the frame
+                                              planner.worker.ts (nested worker): A* routes
+```
+
+| Module | Role |
+| --- | --- |
+| `src/sim/phys/config.ts` | every physical constant (SI), each documented in `overnight/PHYSICS.md` |
+| `src/sim/phys/engine.ts` | Rapier wrapper: world, carpet, field collision mesh (`public/field/field-collision.bin` from `scripts/build-collision.mjs`), solid TRENCH arms and TOWER uprights/rungs, collision groups, material combine rules |
+| `src/sim/phys/fuel.ts` | 504 FUEL bodies: aero, rolling resistance, speed-dependent restitution, sleep, impacts/squash, states (free, flying, indexer, HUB, parked) |
+| `src/sim/phys/hub.ts` | HUB body + hex funnel + throat sensor + exits; hysteretic net |
+| `src/sim/phys/robot.ts` | robot rigid body, raycast suspension, swerve modules with the Kraken curve and per-wheel friction circles, battery, moving intake colliders, roller capture, hopper/indexer, flywheels, turrets, aim/lead, ferry, autopilot follower |
+| `src/sim/phys/aim.ts` | distance → (ω, hood, time of flight) tables solved through the same flight model |
+| `src/sim/world.ts` | the game: layout of 504 FUEL, modes, driver input (deadband), AI hand-over, human player, guard/respawn |
+| `src/sim/brain.ts`, `route.ts`, `planner*.ts` | self-driving robot; routes planned in a worker; the robot follows the old path while a new one computes |
+| `src/sim/backend.ts`, `local.ts`, `sim.worker.ts` | where physics runs (worker by default; same thread for tests) and the `Frame` snapshot |
+| `src/sim/index.ts` | rendering, interpolation, alliance flip, three cameras (critically damped springs), net mesh, fuel instancing |
+| `src/sim/input.ts`, `drivepad.ts`, `controls-page.ts` | keyboard / gamepad / touch, field-relative; floating stick, turn area, Intake toggle, Shoot hold |
+| `src/sim/audio.ts`, `debug.ts` | physically driven sound (off by default); `?debug=physics` overlay |
+| `tests/phys/*.test.ts` | headless physics tests (Vitest); `tests/soak/` 10-minute soak; `scripts/verify.mjs` Playwright e2e |

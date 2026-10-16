@@ -205,6 +205,14 @@ export class Fuel {
       }
       this.vel[o] = v.x; this.vel[o + 1] = v.y; this.vel[o + 2] = v.z;
       const x = this.pos[o], y = this.pos[o + 1], z = this.pos[o + 2];
+      // squeezed between the robot and a wall the solver can push a ball into the carpet (a 61 kg
+      // robot against a 0.2 kg ball); real foam squishes and pops back out, so put it back on top
+      const fl = this.floor(x, z);
+      if (y < fl + FUEL.radius - 0.008 && Math.abs(v.y) < 0.5 && dv < 0.7) {
+        b.setTranslation({ x, y: fl + FUEL.radius, z }, true);
+        if (v.y < 0) b.setLinvel({ x: v.x, y: 0, z: v.z }, true);
+        this.pos[o + 1] = fl + FUEL.radius;
+      }
       // at rest on the floor for 0.4 s: put it to sleep (Rapier would wait ~2 s); any contact from
       // something moving wakes it again
       if (dv < 0.05 && Math.hypot(v.x, v.y, v.z) < 0.04 && y < this.floor(x, z) + FUEL.radius + 0.01) {

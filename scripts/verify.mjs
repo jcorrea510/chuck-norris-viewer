@@ -310,16 +310,23 @@ async function simTests() {
   await page.evaluate(() => { window.__viewer.state.sim.controls.touch.shoot = false; });
   await step(0.5);
 
-  // cameras: exactly three, cycling smoothly
+  // cameras: exactly three, cycling smoothly (critically damped: no jumps, and it gets there)
   const views = [];
   for (let k = 0; k < 4; k++) {
     views.push(await page.evaluate(() => window.__viewer.state.sim.view));
     await tapEl(page, '.sim-tr [data-act=camera]');
-    await step(0.2);
-    const cam = await page.evaluate(() => window.__viewer.viewer.camera.position.toArray());
-    await step(0.05);
-    const cam2 = await page.evaluate(() => window.__viewer.viewer.camera.position.toArray());
-    check(Math.hypot(cam[0] - cam2[0], cam[1] - cam2[1], cam[2] - cam2[2]) < 0.6, `camera switch blends smoothly (moved ${Math.hypot(cam[0] - cam2[0], cam[1] - cam2[1], cam[2] - cam2[2]).toFixed(2)} m in 50 ms)`);
+    const path = await page.evaluate(() => {
+      const sim = window.__viewer.state.sim, out = [];
+      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); out.push(sim.cameraRig().toArray()); }
+      return out;
+    });
+    let maxStep = 0;
+    for (let i = 1; i < path.length; i++) maxStep = Math.max(maxStep, Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1], path[i][2] - path[i - 1][2]));
+    const settle = Math.hypot(...path[89].map((v, j) => v - path[88][j]));
+    let total = 0;
+    for (let i = 1; i < path.length; i++) total += Math.hypot(...path[i].map((v, j) => v - path[i - 1][j]));
+    // no jump: no single frame covers more than 6 % of the move, and it comes to rest
+    check(maxStep <= Math.max(0.05, total * 0.06) && settle < 0.02, `camera switch ${k + 1}: smooth blend (${total.toFixed(1)} m in ${(path.length / 60).toFixed(1)} s, largest frame ${(maxStep / Math.max(total, 1e-6) * 100).toFixed(1)} %, settled)`);
   }
   check(JSON.stringify(views.slice(0, 3).sort()) === JSON.stringify(['driver', 'follow', 'overhead']) && views[3] === views[0], `camera button cycles exactly Driver → Follow → Overhead (${views.join(' → ')})`);
   for (const v of ['driver', 'follow', 'overhead']) {
@@ -331,7 +338,7 @@ async function simTests() {
   // settings sheet: exactly the six things
   await tapEl(page, '.sim-tr [data-act=settings]');
   await page.waitForTimeout(300);
-  const labels = await page.evaluate(() => [...document.querySelectorAll('.sheet .row-label, .sheet .row > span, .sheet .sheet-actions .act span')].map((e) => e.textContent.trim()));
+  const labels = await page.evaluate(() => [...document.querySelectorAll('.sheet .row-label, .sheet .row > span, .sheet .sheet-actions .act span:not(.icon)')].map((e) => e.textContent.trim()).filter(Boolean));
   check(JSON.stringify(labels) === JSON.stringify(['Alliance', 'Bumper Color in CAD View', 'Camera', 'Robot Sound', 'Reset Field', 'Controls Help']), `sim settings: ${labels.join(', ')}`);
   await shot(page, size, 'sim-settings');
   await tapEl(page, '.sheet [data-key=alliance] [data-v=blue]');
@@ -367,6 +374,7 @@ async function simTests() {
   check(await page.evaluate(() => window.__viewer.state.sim.status().mode === 'free'), 'Exit returns to Free Drive');
 
   // flicker: a still scene must render identically frame after frame, from every camera
+  await page.waitForFunction(() => !window.__viewer.viewer.revealing, null, { timeout: 60000 });
   await page.evaluate(() => { window.__viewer.state.sim.paused = true; });
   for (const v of ['driver', 'follow', 'overhead']) {
     await page.evaluate((v) => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView(v); for (let i = 0; i < 120; i++) sim.frame(1 / 60); sim.paused = true; }, v);
@@ -399,13 +407,15 @@ async function simTests() {
   await page.waitForTimeout(300);
   check(await page.evaluate(() => !window.__viewer.state.sim && !window.__viewer.viewer.simActive), 'exit returns to the robot');
   check(errors.length === 0, `sim: no console errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
-  await ctx.close();
 
   // settings persist across reloads
-  const p2 = await open(size);
-  check(await p2.page.evaluate(() => { const s = JSON.parse(localStorage.getItem('chuck-norris-settings-v2') || '{}'); return s.alliance === 'blue' && s.bumper === 'blue'; }), 'alliance and bumper color are remembered');
-  check(await p2.page.evaluate(() => window.__viewer.viewer.bumperColor === 'blue'), 'CAD view shows blue bumpers after reload');
-  await p2.ctx.close();
+  await page.reload();
+  await page.waitForFunction(() => window.__viewer?.state.ready, null, { timeout: 180000 });
+  check(await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('chuck-norris-settings-v2') || '{}'); return s.alliance === 'blue' && s.bumper === 'blue'; }), 'alliance and bumper color are remembered');
+  check(await page.evaluate(() => window.__viewer.viewer.bumperColor === 'blue'), 'CAD view shows blue bumpers after reload');
+  await settle(page);
+  await shot(page, size, 'cad-blue-bumpers');
+  await ctx.close();
 
   // the real thing: physics in its worker, in real time, at every size
   for (const sz of SIZES) {

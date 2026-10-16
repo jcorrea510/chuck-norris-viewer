@@ -71,6 +71,10 @@ export const ROBOT = {
   /** heights from the CAD (scripts/measure.mjs), intake deployed / stowed */
   heightDown: 0.549, heightUp: 0.728,
   bumper: { hx: 0.441, hz: 0.429, y0: 0.037, y1: 0.164, depth: 0.085 },
+  /** frame/superstructure against field elements: painted aluminum on steel/polycarb */
+  hullFriction: 0.3, hullRestitution: 0.12,
+  /** bumper cordura against walls and carpet */
+  bumperFriction: 0.5, bumperRestitution: 0.2,
 };
 
 // Kraken X60 (WCP datasheet, non-FOC): 6000 rpm free, 7.09 N·m stall, 366 A stall, 2 A free.
@@ -104,8 +108,9 @@ export const BATTERY = {
 export const INTAKE = {
   /** four-bar stow angle (deg) and motion limits */
   upDeg: -73, vmax: 230, accel: 1700,
-  /** roller surface speed (m/s) and how hard it can pull a ball (friction-limited) */
-  rollerSpeed: 5.0, rollerGrip: 0.9,
+  /** roller surface speed (m/s), and how hard it can pull a ball: friction μ × the pinch force
+   *  (FUEL spring rate × ~1.4 cm compression under the roller ≈ 50 N) */
+  rollerSpeed: 5.0, rollerGrip: 0.9, pinchForce: 50,
   /** speed a ball travels up the kicker ramp into the hopper */
   feedSpeed: 2.4,
 };

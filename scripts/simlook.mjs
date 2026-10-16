@@ -15,7 +15,7 @@ const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
 if (blue) await page.addInitScript(() => localStorage.setItem('chuck-norris-settings-v2', JSON.stringify({ alliance: 'blue' })));
-await page.goto(`http://localhost:4181/${debug ? '?debug=physics' : ''}`);
+await page.goto(`http://localhost:4181/?physics=main${debug ? '&debug=physics' : ''}`);
 await page.waitForFunction(() => window.__viewer?.state.ready, null, { timeout: 120000 });
 await page.evaluate(() => window.__viewer.api.enterSim('free'));
 await page.waitForFunction(() => window.__viewer.state.sim?.active, null, { timeout: 120000 });

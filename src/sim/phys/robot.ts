@@ -18,7 +18,7 @@
 //             ZONE they shoot at our HUB; anywhere else they lob fuel back home (ferry).
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { BATTERY, DRIVE, FUEL, G, INDEXER, INTAKE, KRAKEN_X60, ROBOT, SHOOTER, STEP, TURRET } from './config';
-import { IG, groups, GROUP, type Engine } from './engine';
+import { IG, groups, GROUP, surfaceMu, surfaceE, type Engine } from './engine';
 import { BS, type Fuel } from './fuel';
 import type { Rng } from './rng';
 import { AimTable } from './aim';
@@ -136,9 +136,12 @@ export class Robot {
         { x: ROBOT.inertia[0], y: ROBOT.inertia[1], z: ROBOT.inertia[2] }, { x: 0, y: 0, z: 0, w: 1 })
       .setLinearDamping(0.02).setAngularDamping(0.05);
     this.body = eng.world.createRigidBody(bd);
+    // field contacts use the hull/bumper values; fuel-only colliders use the FUEL table (÷ the ball's share)
     const add = (desc: RAPIER.ColliderDesc, ig: number, surface: 'bumper' | 'robot' = 'robot') => {
+      const fuelOnly = (ig & 0xffff) === GROUP.BALL;
       desc.setDensity(0).setCollisionGroups(ig)
-        .setFriction(surface === 'bumper' ? 0.5 : 0.3).setRestitution(surface === 'bumper' ? 0.2 : 0.12)
+        .setFriction(fuelOnly ? surfaceMu(surface) : surface === 'bumper' ? ROBOT.bumperFriction : ROBOT.hullFriction)
+        .setRestitution(fuelOnly ? surfaceE(surface) : surface === 'bumper' ? ROBOT.bumperRestitution : ROBOT.hullRestitution)
         .setFrictionCombineRule(Rp.CoefficientCombineRule.Multiply).setRestitutionCombineRule(Rp.CoefficientCombineRule.Multiply);
       const c = eng.world.createCollider(desc, this.body);
       eng.surfaceOf.set(c.handle, surface);
@@ -477,7 +480,7 @@ export class Robot {
       const b = f.bodies[i];
       const bv = b.linvel();
       const rel = this.velToLocal(bv.x - pv[0], bv.y - pv[1], bv.z - pv[2]);
-      if (rel[2] > 1.2) continue;
+      if (rel[2] > INTAKE.rollerSpeed * 0.25) continue;
       this.captured.push({ i, s: 0, x: Math.max(-0.26, Math.min(0.26, L[0])), phase: 'pinch' });
       f.colliders[i].setCollisionGroups(groups(GROUP.BALL, GROUP.FIELD | GROUP.BALL));
       this.onIntake?.(i);
@@ -510,7 +513,7 @@ export class Robot {
       // at what the rollers' grip can do
       const kx = 900, cd = 40;
       let jx = (kx * (goal[0] - t.x) + cd * (pv[0] - v.x)) * STEP, jy = (kx * (goal[1] - t.y) + cd * (pv[1] - v.y) + m * G) * STEP, jz = (kx * (goal[2] - t.z) + cd * (pv[2] - v.z)) * STEP;
-      const jmax = 60 * STEP;
+      const jmax = INTAKE.rollerGrip * INTAKE.pinchForce * STEP;
       const jl = Math.hypot(jx, jy, jz);
       if (jl > jmax) { jx *= jmax / jl; jy *= jmax / jl; jz *= jmax / jl; }
       b.applyImpulse({ x: jx, y: jy, z: jz }, true);

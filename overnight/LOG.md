@@ -29,3 +29,18 @@ NEXT on resume:
 5. Vitest suite for §3.7, plus the Trench/penetration/net/determinism tests. Then merge to main once green.
 6. Remove tests/phys/debug.test.ts and world-quick.test.ts or turn them into real tests.
 - 23:15 simlook finished: the new sim loads and runs in Chromium with no console errors; screenshots in shots/sim-look/ (driver, follow, overhead). Review them on resume.
+
+## 07:24 Resumed (Jack: "keep going until it's actually done well")
+- Camera/HUD review from screenshots: driver cam was inside the tower → moved to driver station 2; HUD styled; portrait trophy icon fix.
+- "3950" glitch root cause: the sim's low-poly electrical mesh poked through the back bumper (raycast found `electricalsteel` 6 mm in front of the fabric), plus decimated lettering. Sim now keeps full-detail bumpers + electrical. Verified close-up.
+- Physics test suite written (tests/phys/realism.test.ts, 20 tests). Bugs it found and fixed:
+  - AI "spinning": takeOver() didn't record input time → AI immediately resumed. Fixed.
+  - Thin TRENCH arm as triangle mesh: bogus contacts / wheelie-wedge. Replaced by solid boxes matched to the mesh (x −3.72…−3.56, underside 0.565). Realistic hull friction/restitution so a wheelie falls back.
+  - TOWER uprights/rungs were thin shells: the robot drove straight through (Jack's item 1). Now solid from the manual + mesh position.
+  - Net: both HUBs shared the "side" state → reset every step → 20 m/s balls passed. Per-hub state + hysteresis: caught within 1 cm, 0.4 m/s rebound.
+  - AI high-centered on the BUMP peak (belly 4.8 cm vs 0.16 m peak) → crosses with momentum.
+  - Balls stuck between the crank bed and front wall, or dead-center between lane mouths → kicker-ramp floor + lane nudge.
+  - Robot could ride a bumper over a ball → ball-only skirt under the robot; squeezed balls popped back onto the carpet.
+- Performance: Rapier ≈ 5 µs/ball/step + my code; ~300 awake balls → 2–3 ms/step. Moved physics to a Web Worker, 120 Hz (benchmarked), early sleep. Main thread ≈ 1–1.5 ms/frame of sim work (debug overlay, Chromium/Firefox).
+- WebKit: native launch fails on Fedora (ICU 74); the official Playwright container under podman works. Sim e2e passes in WebKit 27.2 (two camera checks had a too-tight absolute threshold → made relative).
+- Soak (600 s random driving, previous build): no invariant violations; memory flat 24–59 MB.
