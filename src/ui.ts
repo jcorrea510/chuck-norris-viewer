@@ -19,7 +19,6 @@ export interface UiHandlers {
   onChip(id: string): void;
   onPin(id: string): void;
   onHome(): void;
-  onMove(): void;
   onExplode(): void;
   onSimulate(): void;
   onBack(): void;
@@ -68,7 +67,6 @@ export class UI {
   private chips = new Map<string, HTMLButtonElement>();
   private lens: HTMLElement;
   private pins = new Map<string, HTMLButtonElement>();
-  private moveBtn: HTMLButtonElement;
   private explodeBtn: HTMLButtonElement;
   private fsBtn: HTMLButtonElement;
   private searchBtn: HTMLButtonElement;
@@ -80,7 +78,6 @@ export class UI {
   private debugEl: HTMLElement | null = null;
   private live: HTMLElement;
   private chipRow: HTMLElement;
-  private tray: HTMLElement;
   private pill: HTMLElement;
   private searchEl: HTMLElement;
   private searchInput: HTMLInputElement;
@@ -144,7 +141,7 @@ export class UI {
     this.searchEl.querySelector('.search-close')!.addEventListener('click', () => this.openSearch(false));
     this.layer.append(this.searchEl);
 
-    // Dock: [Overview] | subsystem chips | [Move, Explode, Simulate]
+    // Dock: [Overview] | subsystem chips | [Explode, Simulate]
     this.dock = h('nav', 'dock glass');
     this.dock.setAttribute('aria-label', 'Robot controls');
     const homeGroup = h('div', 'dock-group');
@@ -163,20 +160,12 @@ export class UI {
       this.chipRow.append(b);
     }
     const toolGroup = h('div', 'dock-group');
-    this.moveBtn = this.tool('rotate-3d', 'Move', 'Move mechanisms', () => handlers.onMove());
     this.explodeBtn = this.tool('boxes', 'Explode', 'Explode view', () => handlers.onExplode());
     const simBtn = this.tool('play', 'Simulate', 'Simulation: drive, intake and score on the field', () => handlers.onSimulate());
-    this.moveBtn.setAttribute('aria-pressed', 'false');
     this.explodeBtn.setAttribute('aria-pressed', 'false');
-    toolGroup.append(this.moveBtn, this.explodeBtn, simBtn);
+    toolGroup.append(this.explodeBtn, simBtn);
     this.dock.append(homeGroup, h('div', 'dock-sep'), this.chipRow, h('div', 'dock-sep'), toolGroup);
     this.layer.append(this.dock);
-
-    // Mechanism tray
-    this.tray = h('section', 'tray glass');
-    this.tray.hidden = true;
-    this.tray.setAttribute('aria-label', 'Mechanisms');
-    this.layer.append(this.tray);
 
     // Hidden-parts pill
     this.pill = h('div', 'pill glass-clear');
@@ -191,16 +180,16 @@ export class UI {
     this.panel.setAttribute('aria-live', 'polite');
     this.layer.append(this.panel);
 
-    // Simulation HUD: one small score pill, a FUEL/s readout only while shooting, and three small
-    // buttons. Everything else lives in the settings sheet.
+    // Simulation HUD: the scoreboard on top (score, the High Score clock, a FUEL/s readout only while
+    // shooting) and three small buttons. Everything else lives in the settings sheet.
     this.simHud = h('div', 'sim-hud');
     this.simHud.hidden = true;
     this.simHud.innerHTML = `
       <button class="sim-exit glass icon-btn" data-act="exit" aria-label="Exit the simulation" title="Exit">${icon('x')}</button>
-      <div class="sim-score glass" aria-live="polite">
-        <span class="sim-timer" hidden></span>
-        <b class="sim-n">0</b><span class="sim-unit">FUEL</span>
-        <span class="sim-rate" hidden><b class="sim-rate-n">0</b>/s</span>
+      <div class="sim-score glass" role="status" aria-live="polite" aria-label="Score">
+        <div class="sb-cell sim-time" hidden><span class="sb-label">Time</span><b class="sim-timer">1:00</b></div>
+        <div class="sb-cell sb-fuel"><span class="sb-label">FUEL scored</span><b class="sim-n">0</b></div>
+        <div class="sb-cell sim-rate" hidden><span class="sb-label">FUEL / s</span><b class="sim-rate-n">0</b></div>
       </div>
       <div class="sim-chip sim-ferry" hidden>${icon('undo-2')}<span>Ferry</span></div>
       <div class="sim-chip sim-range" hidden><span>Out of range</span></div>
@@ -397,7 +386,7 @@ export class UI {
     q<HTMLElement>('.sim-range').hidden = !s.outOfRange;
     const hs = s.hs;
     const timer = q<HTMLElement>('.sim-timer');
-    timer.hidden = !hs || hs.phase === 'countdown';
+    q<HTMLElement>('.sim-time').hidden = !hs || hs.phase === 'countdown';
     if (hs) timer.textContent = hs.phase === 'play' ? `0:${String(Math.ceil(hs.t)).padStart(2, '0')}` : '0:00';
     timer.classList.toggle('low', !!hs && hs.phase === 'play' && hs.t <= 10);
     q<HTMLElement>('.sim-hs').hidden = !!hs;
@@ -452,7 +441,7 @@ export class UI {
 
   /** Keeps open sliders in sync while mechanisms move (e.g. from the simulation or presets). */
   syncMechs(values: Map<string, number>) {
-    for (const root of [this.panel, this.tray]) root.querySelectorAll<HTMLElement>('.mech').forEach((el) => {
+    this.panel.querySelectorAll<HTMLElement>('.mech').forEach((el) => {
       const v = values.get(el.dataset.mech!);
       if (v === undefined) return;
       const range = el.querySelector('input')!;
@@ -533,23 +522,7 @@ export class UI {
   hidePanel() { this.panel.hidden = true; }
   panelBox() { const p = this.panel; return { left: p.offsetLeft, top: p.offsetTop, width: p.offsetWidth, height: p.offsetHeight }; }
   dockTop() { return this.dock.offsetTop; }
-  trayBox() { const t = this.tray; return t.hidden ? null : { left: t.offsetLeft, top: t.offsetTop, width: t.offsetWidth, height: t.offsetHeight }; }
   titleBottom() { return this.title.offsetTop + this.title.offsetHeight; }
-
-  // ------------------------------------------------------------ tray
-  showTray(list: MechView[] | null) {
-    if (!list) {
-      this.tray.hidden = true;
-      this.moveBtn.setAttribute('aria-pressed', 'false');
-      return;
-    }
-    this.tray.innerHTML = `<div class="tray-head"><h3>Mechanisms</h3><button class="icon-btn small" aria-label="Close mechanisms">${icon('x')}</button></div>${this.mechHtml(list)}`;
-    this.tray.querySelector('.tray-head button')!.addEventListener('click', () => this.handlers.onMove());
-    this.bindMechs(this.tray);
-    this.tray.hidden = false;
-    this.moveBtn.setAttribute('aria-pressed', 'true');
-  }
-  get trayOpen() { return !this.tray.hidden; }
 
   // ------------------------------------------------------------ hidden pill
   setHidden(count: number, lastLabel: string | null) {

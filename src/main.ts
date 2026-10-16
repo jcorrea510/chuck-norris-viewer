@@ -9,14 +9,14 @@ import { knownFor } from './knownparts';
 import { sound } from './sound';
 import { ACCENTS, defaults, loadSettings, saveSettings, isLight, type Settings } from './settings';
 import type { Simulation, SimMode } from './sim/index';
-import { keyName } from './sim/input';
+import { keyLabels, type Action } from './sim/input';
 import { icon } from './icons';
 
 // ------------------------------------------------------------------ iPad Safari guards
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
 document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', (e) => {
-  const scroller = (e.target as Element | null)?.closest?.('.panel-body, .chips, .results, .sheet-body, .tray, input[type=range]');
+  const scroller = (e.target as Element | null)?.closest?.('.panel-body, .chips, .results, .sheet-body, input[type=range]');
   if (!scroller || e.touches.length > 1) e.preventDefault();
 }, { passive: false });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -59,7 +59,6 @@ const ui = new UI({
   onChip: (id) => { if (!(state.sel?.kind === 'sub' && state.sel.id === id)) selectSubsystem(id); },
   onPin: (id) => selectSubsystem(id),
   onHome: () => resetAll(),
-  onMove: () => toggleTray(),
   onExplode: () => setExploded(!state.exploded),
   onSimulate: () => void enterSim(),
   onBack: () => goBack(),
@@ -121,12 +120,11 @@ const H = () => ui.app.clientHeight;
 function insets(): Insets {
   const w = W(), h = H();
   const bottom = h - ui.dockTop() + 16;
-  // The inspector (or the mechanisms card) occupies the right side in landscape, the bottom in portrait.
-  const side = state.sel ? ui.panelBox() : ui.trayBox();
-  if (!side) return { top: ui.titleBottom() + 12, right: 32, bottom: bottom + 34, left: 32 };
-  const top = state.sel ? 40 : ui.titleBottom() + 12;
-  if (ui.isLandscape) return { top, right: w - side.left + 20, bottom, left: 40 };
-  return { top, right: 24, bottom: h - side.top + 20, left: 24 };
+  // The inspector occupies the right side in landscape, the bottom in portrait.
+  if (!state.sel) return { top: ui.titleBottom() + 12, right: 32, bottom: bottom + 34, left: 32 };
+  const side = ui.panelBox();
+  if (ui.isLandscape) return { top: 40, right: w - side.left + 20, bottom, left: 40 };
+  return { top: 40, right: 24, bottom: h - side.top + 20, left: 24 };
 }
 
 // ------------------------------------------------------------------ selection
@@ -329,13 +327,6 @@ function showAll() {
 }
 
 // ------------------------------------------------------------------ mechanisms / explode
-function toggleTray() {
-  touch();
-  if (ui.trayOpen) { ui.showTray(null); sound.play('toggle'); }
-  else { ui.showTray(mechViews([...viewer.mechanisms.keys()])); sound.play('select'); }
-  setTimeout(() => { if (!state.sel) viewer.frameOverview(insets(), true); }, 30);
-}
-
 let underside = false;
 function setMechanism(id: string, deg: number, commit: boolean) {
   touch();
@@ -375,7 +366,6 @@ function resetAll() {
   if (state.exploded) { state.exploded = false; ui.setExploded(false); viewer.setExploded(false); }
   for (const m of viewer.mechanisms.values()) viewer.setMechanism(m.id, m.def, true);
   underside = false;
-  if (ui.trayOpen) ui.showTray(null);
   overview(true);
 }
 
@@ -384,7 +374,6 @@ async function enterSim(mode: SimMode = 'free') {
   if (!state.ready || state.sim) return;
   touch();
   if (ui.searchOpen) ui.openSearch(false);
-  if (ui.trayOpen) ui.showTray(null);
   if (state.sel) overview();
   if (state.exploded) setExploded(false);
   if (viewer.hiddenCount()) { state.hiddenStack = []; viewer.showAll(); ui.setHidden(0, null); } // the whole robot drives
@@ -400,6 +389,7 @@ async function enterSim(mode: SimMode = 'free') {
       if (state.pit) exitPit();
       if (!drove && sim.world?.control === 'driver') { drove = true; ui.simHint(null); }
     };
+    sim.onView = (v) => applySettings({ ...settings, simView: v });
     sim.onRespawn = () => ui.toast('Robot reset by the field crew', { icon: 'rotate-ccw' });
     sim.onPad = (name) => {
       if (name) ui.toast(`Controller connected: ${name}`, { icon: 'gamepad-2' });
@@ -430,13 +420,13 @@ function touchPadPref() {
 function showDriveHint() {
   const sim = state.sim;
   if (!sim || drove) { ui.simHint(null); return; }
-  const k = (a: Parameters<typeof keyLabel>[1]) => `<kbd>${keyLabel(sim, a)}</kbd>`;
-  if (sim.controls.padConnected) ui.simHint('Left stick drives · right stick turns · <kbd>RT</kbd> shoots · <kbd>LT</kbd> intake on/off');
+  const k = (a: Action) => `<kbd>${keyLabel(sim, a)}</kbd>`;
+  if (sim.controls.padConnected) ui.simHint('Left stick drives · right stick turns · hold <kbd>LT</kbd> intake · <kbd>RT</kbd> shoot');
   else if (sim.touchControls) ui.simHint('Left thumb drives · right thumb turns');
-  else ui.simHint(`${k('forward')}${k('left')}${k('back')}${k('right')} drive · ${k('turnLeft')}${k('turnRight')} turn · ${k('shoot')} shoot · ${k('intake')} intake`);
+  else ui.simHint(`${k('forward')}${k('left')}${k('back')}${k('right')} drive · ${k('turnLeft')}${k('turnRight')} rotate · hold ${k('intake')} intake · ${k('shoot')} shoot`);
 }
-function keyLabel(sim: Simulation, a: 'forward' | 'left' | 'back' | 'right' | 'turnLeft' | 'turnRight' | 'shoot' | 'intake') {
-  return keyName(sim.controls.bindings.keys[a][0] ?? '');
+function keyLabel(sim: Simulation, a: Action) {
+  return keyLabels(sim.controls.bindings.keys[a])[0] ?? '—';
 }
 async function openControls() {
   const sim = state.sim;
@@ -920,7 +910,7 @@ setInterval(() => {
   window.addEventListener('pointerdown', () => sound.play('boot'), { once: true });
   (window as unknown as { __viewer: unknown }).__viewer = {
     viewer, state, ui, sound, THREE, stats: () => viewer.modelStats(),
-    api: { selectSubsystem, selectNodes, overview, hidePids, showAll, setMechanism, enterSim, exitSim, toggleTray, goUp },
+    api: { selectSubsystem, selectNodes, overview, hidePids, showAll, setMechanism, enterSim, exitSim, goUp },
   };
 })().catch((err) => {
   console.error(err);

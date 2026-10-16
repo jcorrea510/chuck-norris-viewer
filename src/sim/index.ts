@@ -99,6 +99,8 @@ export class Simulation {
   onStatus: ((s: SimStatus) => void) | null = null;
   onActivity: (() => void) | null = null;
   onRespawn: (() => void) | null = null;
+  /** the driver switched camera with the keyboard or controller */
+  onView: ((v: SimView) => void) | null = null;
   onPad: ((name: string | null) => void) | null = null;
   onHsPhase: ((p: HsPhase) => void) | null = null;
 
@@ -371,8 +373,8 @@ export class Simulation {
   private driverInput(raw: RawInput): DriverInput {
     return {
       mx: raw.my, mz: raw.mx, turn: raw.turn,
-      shoot: raw.shoot, intake: false, eject: raw.eject, lock: raw.lock, slow: raw.slow,
-      toggleArm: raw.arm, toggleIntake: raw.intakeToggle, handBack: raw.handBack,
+      intake: raw.intake, shoot: raw.shoot, unjam: raw.unjam, reverseIntake: raw.reverseIntake, faceHub: raw.faceHub,
+      retract: raw.retract, resetHeading: raw.resetHeading, turretLock: raw.turretLock, handBack: raw.handBack,
     };
   }
 
@@ -384,14 +386,14 @@ export class Simulation {
     const raw = this.controls.read();
     this.lastRaw = raw;
     if (raw.active || raw.handBack || raw.camera) this.onActivity?.();
-    if (raw.camera) this.nextView();
+    if (raw.camera) { this.nextView(); this.onView?.(this.view); }
     const st0 = this.f.status;
     const input = raw.active || raw.handBack || st0.control === 'driver' || st0.mode === 'highscore' ? this.driverInput(raw) : NO_INPUT;
     // the physics advances in its worker at a fixed 120 Hz; we draw its latest frame,
     // interpolated between its last two steps
     this.backend.tick(dt, input, !!this.debug && this.debugN++ % 10 === 0);
     const fr = this.f, r = fr.robot;
-    this.pad?.setIntake(r.rollers === 'in');
+    this.pad?.setIntake(this.controls.touch.intake);
     this.present(fr.alpha);
     this.writeFuel(fr.alpha);
     this.updateNets();

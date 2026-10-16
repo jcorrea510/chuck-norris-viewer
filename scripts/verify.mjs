@@ -180,8 +180,9 @@ for (const size of SIZES) {
   await tapEl(page, tool('Collapse'));
   await settle(page);
 
-  // Mechanisms
-  await tapEl(page, tool('Move'));
+  // Mechanisms (the Move button and its tray are gone; mechanisms still move from the API, the inspector and by dragging)
+  check(await page.locator(tool('Move')).count() === 0 && await page.locator('.tray').count() === 0, 'the CAD dock has no Move button (and no mechanisms tray)');
+  check(await page.locator('.dock .tool .label').allTextContents().then((l) => JSON.stringify(l) === JSON.stringify(['Overview', 'Explode', 'Simulate'])), 'the CAD dock is Overview, the subsystem chips, Explode, Simulate');
   await page.evaluate(() => { const a = window.__viewer.api; a.setMechanism('turret-left', 70, true); a.setMechanism('turret-right', -70, true); a.setMechanism('intake', -110, true); });
   await settle(page);
   check(await page.evaluate(() => Math.abs(window.__viewer.viewer.mechanismValue('turret-left') - 70) < 1), 'left turret rotates');
@@ -191,7 +192,6 @@ for (const size of SIZES) {
   check(await page.evaluate(() => window.__viewer.viewer.lifted), 'opening the brain pan lifts the robot');
   await shot(page, size, '07-brain-pan-underside');
   await page.evaluate(() => window.__viewer.api.setMechanism('brainpan', 0, true));
-  await tapEl(page, '.tray .tray-head button');
   await settle(page);
 
   // Search
@@ -252,7 +252,13 @@ async function simTests() {
   const step = (s) => page.evaluate((s) => { const sim = window.__viewer.state.sim; for (let i = 0; i < Math.round(s * 60); i++) sim.frame(1 / 60); }, s);
   await page.evaluate(() => window.__viewer.state.sim.setTouchControls(true));
   await step(4);
-  check(await page.evaluate(() => document.querySelector('.sim-score')?.offsetParent !== null), 'HUD: score pill is visible');
+  // the scoreboard: top center, showing the score
+  const board = await page.evaluate(() => {
+    const el = document.querySelector('.sim-score'), r = el?.getBoundingClientRect(), sim = window.__viewer.state.sim;
+    return el && r ? { visible: el.offsetParent !== null, cx: r.left + r.width / 2, top: r.top, w: innerWidth, text: document.querySelector('.sim-n').textContent, scored: sim.status().scored, label: document.querySelector('.sb-fuel .sb-label').textContent } : null;
+  });
+  check(!!board && board.visible && Math.abs(board.cx - board.w / 2) < 2 && board.top < 24, 'HUD: the scoreboard is visible at the top center');
+  check(board?.text === String(board?.scored) && /FUEL/i.test(board?.label), `HUD: the scoreboard shows the score (${board?.text} ${board?.label})`);
   check(await page.evaluate(() => !document.querySelector('.sim-status') && !document.querySelector('.sim-controls')), 'HUD: the old crowded bar is gone');
   check(await page.evaluate(() => [...document.querySelectorAll('.sim-hud button')].filter((b) => b.offsetParent).length <= 4), 'HUD: at most four small buttons');
   // the AI drives it until we touch something
@@ -294,14 +300,52 @@ async function simTests() {
   const shots2 = await page.evaluate(() => window.__viewer.state.sim.world.robot.shotsFired);
   await step(1);
   check(await page.evaluate((s) => window.__viewer.state.sim.world.robot.shotsFired === s, shots2), 'releasing Shoot stops the indexer');
-  // intake toggle
+  // touch Intake = a latched "hold left trigger": tap on (deploys, rollers run), tap off (rollers stop, intake stays down); Up stows it
   const intakeBox = await page.locator('.dp-intake').boundingBox();
-  await page.touchscreen.tap(intakeBox.x + intakeBox.width / 2, intakeBox.y + intakeBox.height / 2);
-  await step(0.3);
-  check(await page.evaluate(() => window.__viewer.state.sim.robot.rollers === 'in' && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'true'), 'Intake button turns the rollers on (and shows it)');
+  const upBox = await page.locator('.dp-up').boundingBox();
+  await page.evaluate(() => window.__viewer.state.sim.world.robot.setIntakeNow(false));
   await page.touchscreen.tap(intakeBox.x + intakeBox.width / 2, intakeBox.y + intakeBox.height / 2);
   await step(0.6);
-  check(await page.evaluate(() => window.__viewer.state.sim.robot.rollers === 'off' && window.__viewer.state.sim.robot.intakeAngle < -60), 'tapping Intake again stops and stows it');
+  check(await page.evaluate(() => { const r = window.__viewer.state.sim.robot; return r.rollers === 'in' && r.intakeDown && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'true'; }), 'Intake button deploys the intake and runs the rollers (and shows ON)');
+  await page.touchscreen.tap(intakeBox.x + intakeBox.width / 2, intakeBox.y + intakeBox.height / 2);
+  await step(0.6);
+  check(await page.evaluate(() => { const r = window.__viewer.state.sim.robot; return r.rollers === 'off' && r.intakeDown && r.intakeAngle > -5 && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'false'; }), 'tapping Intake again stops the rollers but the intake STAYS DOWN');
+  await page.touchscreen.tap(intakeBox.x + intakeBox.width / 2, intakeBox.y + intakeBox.height / 2);
+  await step(0.3);
+  await page.touchscreen.tap(upBox.x + upBox.width / 2, upBox.y + upBox.height / 2);
+  await step(0.8);
+  check(await page.evaluate(() => { const r = window.__viewer.state.sim.robot; return !r.intakeDown && r.rollers === 'off' && r.intakeAngle < -60 && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'false'; }), 'Up stows the intake (and clears a latched Intake)');
+  // keyboard defaults, checked on the input handed to the physics
+  await page.evaluate(() => {
+    const b = window.__viewer.state.sim.backend, orig = b.tick.bind(b);
+    b.tick = (dt, input, dbg) => { window.__lastInput = { ...input }; return orig(dt, input, dbg); };
+  });
+  const keyInput = async (code) => {
+    await page.evaluate((code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true })), code);
+    await step(0.1);
+    const got = await page.evaluate(() => window.__lastInput);
+    await page.evaluate((code) => window.dispatchEvent(new KeyboardEvent('keyup', { code, key: code, bubbles: true })), code);
+    await step(0.1);
+    return got;
+  };
+  for (const [codes, field, val] of [
+    [['ShiftLeft', 'ShiftRight'], 'intake', true], [['KeyK', 'Space'], 'shoot', true], [['ArrowLeft'], 'turn', -1], [['ArrowRight'], 'turn', 1],
+    [['KeyW'], 'mx', 1], [['KeyS'], 'mx', -1], [['KeyA'], 'mz', -1], [['KeyD'], 'mz', 1],
+    [['KeyF'], 'faceHub', true], [['KeyB'], 'unjam', true], [['KeyX'], 'reverseIntake', true],
+    [['KeyR'], 'retract', true], [['KeyY'], 'resetHeading', true], [['KeyL'], 'turretLock', true],
+  ]) for (const code of codes) {
+    const got = await keyInput(code);
+    check(got?.[field] === val, `keyboard: ${code} → ${field} = ${val} (got ${got?.[field]})`);
+  }
+  check((await keyInput('ArrowUp'))?.mx === 0 && (await keyInput('ArrowDown'))?.mx === 0, 'keyboard: ↑ and ↓ are unbound');
+  // Tab = next camera, without moving focus
+  const v0 = await page.evaluate(() => window.__viewer.state.sim.view);
+  await page.evaluate(() => { document.activeElement?.blur?.(); window.__tabDefault = null; window.addEventListener('keydown', (e) => { if (e.code === 'Tab') window.__tabDefault = e.defaultPrevented; }); });
+  await page.keyboard.press('Tab');
+  await step(0.1);
+  const v1 = await page.evaluate(() => window.__viewer.state.sim.view);
+  check(v1 !== v0 && await page.evaluate(() => window.__tabDefault === true), `Tab switches camera (${v0} → ${v1}) and keeps focus where it was`);
+  check(await page.evaluate(() => JSON.parse(localStorage.getItem('chuck-norris-settings-v2') || '{}').simView) === v1, 'the Tab camera is remembered');
   // ferry from the neutral zone, with the subtle indicator
   await page.evaluate(() => { const w = window.__viewer.state.sim.world; w.robot.place(0.5, -1.2, Math.PI / 2); w.robot.preload(w.preloadIdx); w.robot.shoot = true; });
   await page.evaluate(() => { window.__viewer.state.sim.controls.touch.shoot = true; });
@@ -357,6 +401,7 @@ async function simTests() {
   await shot(page, size, 'hs-countdown');
   await step(3);
   check(await page.evaluate(() => window.__viewer.state.sim.status().hs?.phase === 'play'), 'then the 60 s round');
+  check(await page.evaluate(() => { const t = document.querySelector('.sim-time'); return !t.hidden && /^0:\d\d$/.test(document.querySelector('.sim-timer').textContent) && !document.querySelector('.sim-score').hidden; }), 'High Score: the scoreboard shows the clock next to the score');
   // drive and shoot a bit
   await page.evaluate(() => { const c = window.__viewer.state.sim.controls.touch; c.shoot = true; });
   await step(8);
@@ -395,14 +440,14 @@ async function simTests() {
   await page.evaluate(() => {
     const sim = window.__viewer.state.sim;
     let seed = 7; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
-    const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'KeyF', 'KeyR', 'KeyV', 'KeyX', 'KeyC', 'ShiftLeft', 'KeyH'];
+    const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyK', 'KeyF', 'KeyR', 'Tab', 'KeyX', 'KeyB', 'KeyY', 'KeyL', 'ShiftLeft', 'ShiftRight', 'KeyH'];
     for (let k = 0; k < 60 * 40; k++) {
       if (rnd() < 0.05) { const code = keys[Math.floor(rnd() * keys.length)]; window.dispatchEvent(new KeyboardEvent(rnd() < 0.5 ? 'keydown' : 'keyup', { code, bubbles: true })); }
-      if (rnd() < 0.03) Object.assign(sim.controls.touch, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, shoot: rnd() < 0.4, intakeTap: rnd() < 0.2 });
+      if (rnd() < 0.03) Object.assign(sim.controls.touch, { mx: rnd() * 2 - 1, my: rnd() * 2 - 1, turn: rnd() * 2 - 1, shoot: rnd() < 0.4, intake: rnd() < 0.3, retractTap: rnd() < 0.1 });
       sim.frame(1 / 60 * (0.5 + rnd()));
     }
     for (const code of keys) window.dispatchEvent(new KeyboardEvent('keyup', { code }));
-    Object.assign(sim.controls.touch, { mx: 0, my: 0, turn: 0, shoot: false });
+    Object.assign(sim.controls.touch, { mx: 0, my: 0, turn: 0, shoot: false, intake: false });
   });
   const fz = await page.evaluate(() => { const r = window.__viewer.state.sim.robot; return [r.x, r.z, r.th].every(Number.isFinite) && Math.abs(r.x) < 8.3 && Math.abs(r.z) < 4.05; });
   check(fz, 'input fuzzing (40 s of random keys and touches): robot sane');
@@ -444,6 +489,8 @@ async function simTests() {
       return hits;
     });
     check(overlap.length === 0, `${sz.name}: HUD and controls don't overlap${overlap.length ? ': ' + overlap.join(', ') : ''}`);
+    const bd = await q.page.evaluate(() => { const r = document.querySelector('.sim-score').getBoundingClientRect(); return { cx: r.left + r.width / 2, w: innerWidth, top: r.top, bottom: r.bottom }; });
+    check(Math.abs(bd.cx - bd.w / 2) < 2 && bd.top >= 0 && bd.bottom < 90, `${sz.name}: the scoreboard is centered at the top`);
     await shot(q.page, sz, 'sim-live');
     check(q.errors.length === 0, `${sz.name}: no console errors${q.errors.length ? ': ' + q.errors.slice(0, 3).join(' | ') : ''}`);
     await q.ctx.close();
