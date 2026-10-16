@@ -26,14 +26,19 @@ async function scenario(name, setup, cam, frames, every, input = {}) {
     const sim = window.__viewer.state.sim, w = sim.world;
     w.setMode('free');
     w.takeOver();
+    sim.setTouchControls(true);   // the on-screen controls carry our input (hidden pads zero it)
     new Function('sim', 'w', setup)(sim, w);
+    sim.paused = false;
     Object.assign(sim.controls.touch, { mx: 0, my: 0, turn: 0, shoot: false, ...input });
     sim.frame(1 / 60);
   }, [setup, input]);
   for (let k = 0; k < frames; k++) {
     await page.evaluate(([cam, every, input]) => {
       const sim = window.__viewer.state.sim;
+      sim.paused = false;
       for (let i = 0; i < every; i++) { Object.assign(sim.controls.touch, input); sim.frame(1 / 60); }
+      // hold the simulation (and its camera rig) while this frame is photographed from our camera
+      sim.paused = true;
       window.__viewer.viewer.controls.setLookAt(...cam, false);
       window.__viewer.viewer.controls.update(0);
       window.__viewer.viewer.invalidate(true);
@@ -49,11 +54,11 @@ await scenario('ferry', `w.robot.place(0.4, -1.5, Math.PI / 2); w.robot.preload(
 // shots from our zone into the HUB, some over it into the net
 await scenario('net', `w.robot.place(-7.2, 0.15, Math.PI / 2); w.robot.preload(w.preloadIdx);`, [-2.0, 2.6, -3.2, -3.0, 2.0, 0.0], 8, 9, { shoot: true });
 // stowed intake into a TRENCH arm: stopped (a short wheelie)
-await scenario('trench-blocked', `w.robot.place(-6.0, -3.38, Math.PI / 2); w.robot.setIntakeNow(false); for (let i = 0; i < w.fuel.n; i++) { const x = w.fuel.pos[i*3], z = w.fuel.pos[i*3+2]; if (z < -2.5 && x < -2 && x > -7) w.fuel.park(i, [20, 0, 0]); }`, [-4.0, 1.0, -1.6, -4.0, 0.4, -3.38], 8, 6, { my: 1 });
+await scenario('trench-blocked', `w.robot.place(-6.0, -3.38, Math.PI / 2); w.robot.setIntakeNow(false); for (let i = 0; i < w.fuel.n; i++) { const x = w.fuel.pos[i*3], z = w.fuel.pos[i*3+2]; if (z < -2.5 && x < -2 && x > -7) w.fuel.park(i, [20, 0, 0]); }`, [-5.1, 1.15, -1.9, -3.9, 0.45, -3.38], 8, 6, { my: 1 });
 // intake down: under the TRENCH
-await scenario('trench-under', `w.robot.place(-6.0, -3.38, Math.PI / 2); w.robot.setIntakeNow(true); for (let i = 0; i < w.fuel.n; i++) { const x = w.fuel.pos[i*3], z = w.fuel.pos[i*3+2]; if (z < -2.5 && x < -2 && x > -7) w.fuel.park(i, [20, 0, 0]); }`, [-3.6, 1.0, -1.4, -3.6, 0.4, -3.38], 8, 8, { my: 1 });
+await scenario('trench-under', `w.robot.place(-6.0, -3.38, Math.PI / 2); w.robot.setIntakeNow(true); for (let i = 0; i < w.fuel.n; i++) { const x = w.fuel.pos[i*3], z = w.fuel.pos[i*3+2]; if (z < -2.5 && x < -2 && x > -7) w.fuel.park(i, [20, 0, 0]); }`, [-5.1, 1.15, -1.9, -3.4, 0.45, -3.38], 8, 8, { my: 1 });
 // over a BUMP at speed, side view
-await scenario('bump', `w.robot.place(-6.0, 1.5, Math.PI / 2);`, [-3.6, 0.5, -1.2, -3.6, 0.3, 1.5], 10, 5, { my: 1 });
+await scenario('bump', `w.robot.place(-6.0, 1.5, Math.PI / 2);`, [-5.4, 0.9, 3.3, -3.6, 0.2, 1.5], 10, 5, { my: 1 });
 // the hopper full of FUEL while the robot spins in place: it sloshes outward
 await scenario('hopper', `w.robot.place(-6.5, -1.6, Math.PI / 2); const idx = []; for (let i = 0; i < w.fuel.n && idx.length < 30; i++) { const x = w.fuel.pos[i*3]; if (w.fuel.st[i] === 0 && x > -1 && x < 1) idx.push(i); } w.robot.preload(idx.slice(0, 24));`, [-6.5, 2.1, -0.3, -6.5, 0.3, -1.6], 10, 6, { turn: 1 });
 

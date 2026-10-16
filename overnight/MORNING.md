@@ -43,7 +43,13 @@ Before = last night's hand-made engine. After = Rapier, with every value sourced
 | Shooting while strafing at 2.8 m/s | — | 12/13 scored (the turrets lead the HUB by speed × flight time) |
 | Robot left alone, 60 s | — | scores ~100–110 FUEL by itself |
 
-Screenshots: `shots/chromium/` and `shots/sim-look/`.
+Clips (frame strips from the real simulation, `node scripts/media.mjs` to regenerate):
+- [Intake up into a Trench: it stops at the arm](media/trench-blocked.jpg) · [intake down: it drives under](media/trench-under.jpg)
+- [Over a Bump](media/bump.jpg)
+- [A full hopper while the robot spins in place: the FUEL sloshes, and the top layer flies out of the open hopper](media/hopper.jpg)
+- [Ferry shots from the neutral zone](media/ferry.jpg), [shots over the Hub into the net](media/net.jpg) (these are wide shots, so the balls are small; try them live)
+
+The e2e run also saves screenshots of every step (cameras, settings, High Score countdown and results, all iPad sizes) to `shots/<browser>/`.
 
 ## 3. Try this first (on the iPad)
 
