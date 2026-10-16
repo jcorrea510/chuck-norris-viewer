@@ -44,3 +44,10 @@ NEXT on resume:
 - Performance: Rapier ≈ 5 µs/ball/step + my code; ~300 awake balls → 2–3 ms/step. Moved physics to a Web Worker, 120 Hz (benchmarked), early sleep. Main thread ≈ 1–1.5 ms/frame of sim work (debug overlay, Chromium/Firefox).
 - WebKit: native launch fails on Fedora (ICU 74); the official Playwright container under podman works. Sim e2e passes in WebKit 27.2 (two camera checks had a too-tight absolute threshold → made relative).
 - Soak (600 s random driving, previous build): no invariant violations; memory flat 24–59 MB.
+
+## 10:22 Green on the final build → merging
+- Physics (Vitest) 21/21; soak 600 s random driving: no violations, memory 18–65 MB (no trend).
+- WebKit 27.2 (podman container): full suite 110/110, and the final-build sim suite 44/44.
+- Chromium: CAD regression passes at all three iPad sizes (77 checks); final-build sim suite 44/44 (flicker: all three cameras identical frames).
+- e2e fixes: wait for the robot's reveal animation and UI fades before flicker frames (they aren't flicker); relative camera-blend criterion; longer reload/clock waits for software rendering.
+- Fast-forwarding main to overnight and pushing (deploys the site).

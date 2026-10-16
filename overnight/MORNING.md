@@ -1,6 +1,6 @@
 # Morning report: Chuck Norris simulator
 
-*Updated Fri Oct 16, ~09:00. Status at the bottom.*
+*Updated Fri Oct 16, ~10:05. Status at the bottom.*
 
 ## 1. What changed (your list)
 
@@ -86,7 +86,7 @@ All 17 are in [DECISIONS.md](DECISIONS.md). The top five:
 
 ## 6. Known issues (honest)
 
-- **Untested in Safari/WebKit:** see Status below for whether the container run worked.
+- **Safari:** tested in WebKit 27.2 (Playwright's Safari engine, run in its official container because Fedora lacks its libraries): every check passes. Not tested on a real iPad.
 - **Sound unreviewed by ear**, so it's off by default.
 - **Robot shoving a ball into a wall:** the engine can squeeze it into the carpet for a moment; a guard pops it back up. Rare, hard to see.
 - **A full-speed hit with the intake up** makes a big wheelie. I believe that's real, but have a driver confirm.
@@ -95,7 +95,10 @@ All 17 are in [DECISIONS.md](DECISIONS.md). The top five:
 
 ## 7. Status
 
-- Branch `overnight`: all work, pushed.
-- Physics tests (Vitest): **20/20 pass**.
-- E2E (Playwright): see the latest LOG.md entry.
-- `main`: see the latest LOG.md entry. Site: https://jcorrea510.github.io/chuck-norris-viewer/
+- **Physics tests** (Vitest, `npm run test:phys`): **21/21 pass**: every §3.7 check, collisions at full speed into every element, the Trench in both intake positions, net/panel tunneling, determinism, scoring exactly once, ferry by zone, indexer gating, shooting on the move.
+- **Soak** (`npm run soak`, 10 simulated minutes of random driving and shooting, invariants checked every step): **passes**. No NaN, no FUEL outside the field or inside the Hub, the robot never outside the field, the score only goes up; memory stays between 18 and 65 MB with no upward trend.
+- **End-to-end** (Playwright, `npm run e2e`):
+  - **WebKit:** **110/110 pass**: the CAD regression (subsystem focus, part taps, double-tap hide, explode, mechanisms, brain pan, search, settings) at three iPad sizes, plus the simulation suite. That suite covers touch driving with multitouch shooting, intake toggle, ferry, cameras, the settings sheet, a full High Score round, settings surviving a reload, flicker, 40 s of input fuzzing, layout at all sizes, and no console errors.
+  - **Chromium:** the CAD regression passes at all three iPad sizes (77 checks), and on the final build the simulation suite passes **44/44**.
+- **Branch `overnight`:** pushed.
+- **`main` / the site:** see the last LOG.md entry. https://jcorrea510.github.io/chuck-norris-viewer/

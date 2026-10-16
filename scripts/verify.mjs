@@ -6,6 +6,7 @@
 import { preview } from 'vite';
 import { chromium, firefox, webkit } from 'playwright';
 import fs from 'node:fs';
+import { PNG } from 'pngjs';
 
 const SIZES = [
   { name: 'ipad-air-landscape', width: 1180, height: 820 },
@@ -378,12 +379,15 @@ async function simTests() {
   await page.evaluate(() => { window.__viewer.state.sim.paused = true; });
   for (const v of ['driver', 'follow', 'overhead']) {
     await page.evaluate((v) => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView(v); for (let i = 0; i < 120; i++) sim.frame(1 / 60); sim.paused = true; }, v);
+    await page.waitForTimeout(1500); // interface fades (0.6 s) finish first; they aren't flicker
     const a = await page.screenshot({ timeout: 240000 });
     await page.waitForTimeout(500);
     const b = await page.screenshot({ timeout: 240000 });
     await page.waitForTimeout(500);
     const c = await page.screenshot({ timeout: 240000 });
-    check(a.equals(b) && b.equals(c), `no flicker: ${v} view renders identically over three frames`);
+    const diff = (x, y) => { const p = PNG.sync.read(x).data, q = PNG.sync.read(y).data, w = PNG.sync.read(x).width; let n = 0, box = [1e9, 1e9, -1, -1]; for (let i = 0; i < p.length; i += 4) if (Math.abs(p[i] - q[i]) + Math.abs(p[i + 1] - q[i + 1]) + Math.abs(p[i + 2] - q[i + 2]) > 0) { n++; const k = i / 4; box = [Math.min(box[0], k % w), Math.min(box[1], Math.floor(k / w)), Math.max(box[2], k % w), Math.max(box[3], Math.floor(k / w))]; } return n ? `${n} px in ${box.join(',')}` : ''; };
+    const d = diff(a, b) || diff(b, c);
+    check(!d, `no flicker: ${v} view renders identically over three frames${d ? ` (${d})` : ''}`);
   }
   await page.evaluate(() => { window.__viewer.state.sim.paused = false; });
 
@@ -409,7 +413,7 @@ async function simTests() {
   check(errors.length === 0, `sim: no console errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
 
   // settings persist across reloads
-  await page.reload();
+  await page.reload({ timeout: 240000 });
   await page.waitForFunction(() => window.__viewer?.state.ready, null, { timeout: 180000 });
   check(await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('chuck-norris-settings-v2') || '{}'); return s.alliance === 'blue' && s.bumper === 'blue'; }), 'alliance and bumper color are remembered');
   check(await page.evaluate(() => window.__viewer.viewer.bumperColor === 'blue'), 'CAD view shows blue bumpers after reload');
@@ -423,9 +427,10 @@ async function simTests() {
     await q.page.evaluate(() => { localStorage.clear(); });
     await q.page.evaluate(() => window.__viewer.api.enterSim('free'));
     await q.page.waitForFunction(() => window.__viewer.state.sim?.active && window.__viewer.state.sim.backend?.frame, null, { timeout: 180000 });
-    await q.page.waitForTimeout(4000);
+    // software rendering in CI draws only a few frames a second: wait for the worker's clock to move
+    await q.page.waitForFunction(() => window.__viewer.state.sim.f.clock > 0.25, null, { timeout: 30000 }).catch(() => {});
     const st = await q.page.evaluate(() => ({ clock: window.__viewer.state.sim.f.clock, worker: !window.__viewer.state.sim.world }));
-    check(st.worker && st.clock > 0.1, `${sz.name}: physics runs in its worker (${st.clock.toFixed(1)} s simulated)`);
+    check(st.worker && st.clock > 0.25, `${sz.name}: physics runs in its worker (${st.clock.toFixed(2)} s simulated)`);
     // nothing overlaps: HUD elements keep clear of each other
     const overlap = await q.page.evaluate(() => {
       const els = ['.sim-exit', '.sim-score', '.sim-tr', '.dp-move', '.dp-turn', '.dp-buttons'].map((s) => document.querySelector(s)).filter((e) => e && e.offsetParent !== null);
