@@ -20,6 +20,16 @@ export interface SimSoundState {
   pan: number;           // −1..1
 }
 
+/**
+ * Level of each sound in dB, measured with scripts/soundcheck.mjs so the mix is balanced: soft
+ * interface ticks near −24 dBFS, chimes near −18, a shot −12, a wall hit −9 (at 60 % volume).
+ */
+const TRIM: Partial<Record<Kind, number>> = {
+  tap: 26.8, select: 13.7, focus: 13.8, back: 15.2, hide: 27.2, show: 16.5, toggle: 36, open: 19.9, boot: 11.1,
+  error: 13.5, shot: 23.4, score: 17.1, intake: 26.4, bounce: 29, impact: 21.3, takeover: 13.8, handback: 14.8,
+  respawn: 16.5, connect: 13.3,
+};
+
 interface Layer { src: AudioScheduledSourceNode[]; gain: GainNode; set: (s: SimSoundState, t: number) => void }
 
 export class Sound {
@@ -42,12 +52,12 @@ export class Sound {
       if (!AC) return;
       const c = this.ctx = new AC();
       this.master = c.createGain();
-      this.master.gain.value = this.volume * 0.6;
+      this.master.gain.value = this.volume * 0.9;
       // glue: a gentle compressor, then a limiter so stacked shots never clip
       const comp = c.createDynamicsCompressor();
-      comp.threshold.value = -20; comp.knee.value = 12; comp.ratio.value = 3; comp.attack.value = 0.004; comp.release.value = 0.2;
+      comp.threshold.value = -12; comp.knee.value = 10; comp.ratio.value = 3; comp.attack.value = 0.004; comp.release.value = 0.2;
       const lim = c.createDynamicsCompressor();
-      lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.08;
+      lim.threshold.value = -1.5; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.08;
       this.master.connect(comp).connect(lim).connect(c.destination);
       this.dry = c.createGain();
       this.dry.connect(this.master);
@@ -67,7 +77,7 @@ export class Sound {
 
   setVolume(v: number) {
     this.volume = v;
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(v * 0.6, this.ctx.currentTime, 0.05);
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(v * 0.9, this.ctx.currentTime, 0.05);
   }
 
   private ok() { return this.enabled && this.ctx && this.master && this.ctx.state === 'running'; }
@@ -111,8 +121,13 @@ export class Sound {
     p.pan.value = Math.max(-1, Math.min(1, pan));
     p.connect(this.dry!);
     if (send > 0) { const s = c.createGain(); s.gain.value = send; p.connect(s).connect(this.wet!); }
-    return p;
+    const trim = c.createGain();
+    trim.gain.value = this.trim;
+    trim.connect(p);
+    return trim;
   }
+  /** level of the sound being played (see TRIM) */
+  private trim = 1;
 
   /** Attack / exponential decay envelope on a fresh gain node. */
   private env(t: number, peak: number, attack: number, decay: number): GainNode {
@@ -169,6 +184,7 @@ export class Sound {
     if (t - prev < (minGap[kind] ?? 0)) return;
     this.last.set(kind, t);
     const g = o.gain ?? 1, pan = o.pan ?? 0;
+    this.trim = Math.pow(10, (TRIM[kind] ?? 0) / 20);
     const r = (a: number) => 1 + (Math.random() - 0.5) * a; // humanize
     switch (kind) {
       case 'tap': {
@@ -387,7 +403,7 @@ export class Sound {
     if (!this.sim || !this.ctx) { if (this.ctx && this.enabled) this.simStart(); return; }
     const t = this.ctx.currentTime;
     const on = this.ok() ? 1 : 0;
-    this.sim.bus.gain.setTargetAtTime(on * (0.35 + 0.65 * s.near), t, 0.15);
+    this.sim.bus.gain.setTargetAtTime(on * 4 * (0.35 + 0.65 * s.near), t, 0.15);
     this.sim.pan.pan.setTargetAtTime(Math.max(-0.8, Math.min(0.8, s.pan)), t, 0.1);
     for (const l of this.sim.layers) l.set(s, t);
   }

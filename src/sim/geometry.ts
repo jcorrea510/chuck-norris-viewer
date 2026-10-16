@@ -69,7 +69,7 @@ export const BARS: Bar[] = [
 export const ROLLER = { z: 0.608, y: 0.1675, r: 0.031, hx: 0.295 };
 /** The hopper's front wall rides the coupler: z, and the y range it covers (deployed). */
 export const FRONT_WALL = { z: 0.642, y0: 0.244, y1: 0.549 };
-export const HOPPER = { hx: 0.327, back: -0.018, floor: 0.12, top: 0.72 };
+export const HOPPER = { hx: 0.327, back: -0.018, floor: 0.12, top: 0.8 };
 /** Fuel the hopper holds with the intake deployed / stowed. */
 export const CAPACITY_DOWN = 48, CAPACITY_UP = 32;
 export const capacityAt = (deg: number) => Math.round(CAPACITY_DOWN + (CAPACITY_UP - CAPACITY_DOWN) * Math.min(1, Math.max(0, deg / INTAKE_UP)));

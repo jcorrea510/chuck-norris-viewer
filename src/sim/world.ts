@@ -262,13 +262,11 @@ export class SimWorld {
   /** Put the robot back on its feet in the alliance zone (the renderer covers it with a fade). */
   respawn() {
     const r = this.robot;
-    const keep = r.load;
     const held: number[] = [];
     r.forEachHeld((i) => held.push(i));
     r.place(-6.2, 0.9, Math.PI / 2);
     r.setIntakeNow(true);
     for (const i of held) this.park(i);
-    void keep;
     if (this.brain instanceof EndlessBrain) this.brain.resume();
     this.onRespawn?.();
   }

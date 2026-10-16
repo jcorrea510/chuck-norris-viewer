@@ -888,7 +888,7 @@ setInterval(() => {
   ui.showHint(true);
   window.addEventListener('pointerdown', () => sound.play('boot'), { once: true });
   (window as unknown as { __viewer: unknown }).__viewer = {
-    viewer, state, ui, stats: () => viewer.modelStats(),
+    viewer, state, ui, sound, stats: () => viewer.modelStats(),
     api: { selectSubsystem, selectNodes, overview, hidePids, showAll, setMechanism, enterSim, exitSim, toggleTray, goUp },
   };
 })().catch((err) => {

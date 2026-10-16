@@ -17,6 +17,12 @@ Math.random = () => { st = (st * 1664525 + 1013904223) >>> 0; return st / 429496
 const data = JSON.parse(fs.readFileSync(new URL('../public/field/field-2026.json', import.meta.url), 'utf8'));
 const w = new SimWorld(data);
 w.setMode(mode === 'auto' ? 'auto' : 'endless');
+if (mode === 'info') {
+  const f = w.field;
+  for (const [x, z] of [[-7.95, 3.25], [-7.95, 3.5], [-7.95, 3.0], [-8.1, 3.25], [-6.4, 2.2]]) console.log(`clearance (${x}, ${z}) = ${f.clearance(x, z).toFixed(3)}  floor ${f.floor(x, z).toFixed(3)}`);
+  console.log(`trench lane z=${w.trenchZ.toFixed(3)} half-width ${f.clearance(-3.62, -w.trenchZ).toFixed(3)}`);
+  process.exit(0);
+}
 if (mode === 'wtest') {
   // the AI drives for 5 s, then the driver asks for +z at full stick
   for (let k = 0; k < 5 / STEP; k++) w.step(STEP);
@@ -57,6 +63,7 @@ let lastScore = 0, lastScoreT = 0, maxGap = 0, gapAt = [0, 0], nan = 0, respawns
 const stuck: string[] = [];
 let probe = { x: r.x, z: r.z, t: 0 };
 const overlapLog: string[] = [];
+let minAt = '';
 let minClear = Infinity, hopperWorst = 0, overCap = 0;
 w.onRespawn = () => { respawns++; stuck.push(`  RESPAWN at t=${w.clock.toFixed(0)}`); };
 let input: DriverInput = NO_INPUT, burst = 0;
@@ -77,7 +84,7 @@ for (let k = 0; k < steps; k++) {
   const t = w.clock;
   if (b.scored !== lastScore) { if (t - lastScoreT > maxGap) { maxGap = t - lastScoreT; gapAt = [r.x, r.z]; } lastScore = b.scored; lastScoreT = t; }
   const c = r.drive.clearance(r.x, r.z, r.th);
-  if (c < minClear) minClear = c;
+  if (c < minClear) { minClear = c; minAt = `t=${w.clock.toFixed(2)} (${r.x.toFixed(2)},${r.z.toFixed(2)}) th=${(r.th * 57.3).toFixed(0)} intake=${r.intakeAngle.toFixed(0)} v=${r.speed.toFixed(2)}`; }
   if (!Number.isFinite(r.x + r.z + r.th)) nan++;
   if (r.load > r.capacity + 1) overCap++;
   // no movement for 20 s while the AI drives = stuck
@@ -111,4 +118,4 @@ console.log(stuck.slice(0, 40).join('\n'));
 console.log(overlapLog.join('\n'));
 console.log(`\n${mode}: ${seconds}s simulated in ${real.toFixed(1)}s (${(seconds / real).toFixed(0)}× real time)`);
 console.log(`shots=${r.shotsFired} scored=${b.scored} accuracy=${(b.scored / Math.max(1, r.shotsFired) * 100).toFixed(1)}% rate=${(b.scored / seconds * 60).toFixed(1)}/min longest gap=${maxGap.toFixed(1)}s at (${gapAt[0].toFixed(1)},${gapAt[1].toFixed(1)})`);
-console.log(`stuck episodes=${stuck.length} respawns=${respawns} NaN=${nan} min footprint clearance=${(minClear * 100).toFixed(1)}cm worst hopper overlap=${(hopperWorst * 1000).toFixed(1)}mm over-capacity steps=${overCap}`);
+console.log(`stuck episodes=${stuck.length} respawns=${respawns} NaN=${nan} min footprint clearance=${(minClear * 100).toFixed(1)}cm ${minAt} worst hopper overlap=${(hopperWorst * 1000).toFixed(1)}mm over-capacity steps=${overCap}`);

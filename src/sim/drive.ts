@@ -176,7 +176,7 @@ export class SwerveDrive {
   private collide() {
     this.impact = 0;
     const pts = this.outline();
-    for (let iter = 0; iter < 4; iter++) {
+    for (let iter = 0; iter < 8; iter++) {
       const c = Math.cos(this.th), s = Math.sin(this.th);
       let worst = 0, wx = 0, wz = 0;
       for (const [lx, lz] of pts) {
@@ -186,7 +186,11 @@ export class SwerveDrive {
       }
       if (worst >= 0) return;
       let [nx, nz] = this.field.normal(wx, wz);
-      if (!nx && !nz) { const l = Math.hypot(this.x - wx, this.z - wz) || 1; nx = (this.x - wx) / l; nz = (this.z - wz) / l; }
+      // thin field elements (one grid cell) have no clear inside: always push back toward the side
+      // the robot's center is on, so nothing can be shoved through a thin wall
+      const cx = this.x - wx, cz = this.z - wz, cl = Math.hypot(cx, cz) || 1;
+      if (!nx && !nz) { nx = cx / cl; nz = cz / cl; }
+      else if (nx * cx + nz * cz < 0) { nx = -nx; nz = -nz; }
       // positional correction: straight out of the obstacle
       this.x += nx * (-worst + 0.001);
       this.z += nz * (-worst + 0.001);

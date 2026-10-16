@@ -114,6 +114,9 @@ export class DriverControls {
     }
     if (this.bound(e.code)) {
       e.preventDefault();
+      // a focused HUD button would otherwise also "click" on Space
+      const f = document.activeElement as HTMLElement | null;
+      if (f && f !== document.body && f.tagName === 'BUTTON') f.blur();
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
     }

@@ -413,7 +413,7 @@ export class RobotSim implements RobotContact {
       if (b.link === 'crank') { const [z, y] = crankPoint(b.z, b.y, this.intakeAngle); return [z, y, b.r]; }
       return [b.z + cdz, b.y + cdy, b.r];
     });
-    const wallZ = FRONT_WALL.z + cdz, wallY0 = FRONT_WALL.y0 + cdy, wallY1 = FRONT_WALL.y1 + cdy;
+    const wallZ = FRONT_WALL.z + cdz, wallY0 = FRONT_WALL.y0 + cdy;
     const feeding = this.turrets.some((t) => t.lane.length < 2) || this.shoot;
     const conveyor = this.rollers === 'out' ? 1.1 : feeding ? -1.0 : 0;
     const gy = -G * Math.cos(this.pitch) * Math.cos(this.roll);
@@ -479,7 +479,8 @@ export class RobotSim implements RobotContact {
         // drops into the intake's throat below it
         if (b.z > 0.45 + cdz && b.y < 0.36 + cdy) { b.y = 0.36 + cdy; if (b.vy < 0) b.vy = -b.vy * 0.15; }
         // front wall (rides the coupler)
-        if (b.y > wallY0 - R * 0.5 && b.y < wallY1 + R && b.z > wallZ - R) { b.z = wallZ - R; if (b.vz > 0) b.vz = -b.vz * 0.2; }
+        // (fuel heaped above it stays in too: the side plates and the pile hold it)
+        if (b.y > wallY0 - R * 0.5 && b.z > wallZ - R) { b.z = wallZ - R; if (b.vz > 0) b.vz = -b.vz * 0.2; }
         if (b.y < HOPPER.floor + R) {
           b.y = HOPPER.floor + R;
           if (b.vy < 0) b.vy = -b.vy * 0.15;
@@ -730,6 +731,10 @@ export class RobotSim implements RobotContact {
     if (remaining < 0.06 && (!o.stopAtEnd || sp < 0.2)) { this.done = true; return { vx: 0, vz: 0, heading: this.th }; }
     if (!o.stopAtEnd && remaining < 0.25) this.done = true;
     const heading = o.segHeading?.[this.seg] ?? (o.heading === 'travel' ? Math.atan2(dx, dz) : o.heading);
+    // in tight spots (a trench lane), finish turning before pressing on: a long robot turning
+    // across a narrow lane would wedge itself
+    const he = Math.abs(Math.atan2(Math.sin(heading - this.th), Math.cos(heading - this.th)));
+    if (he > 0.25 && this.drive.clearance(this.x, this.z, this.th) < 0.35) v = Math.min(v, Math.max(0.35, 2.4 * (1 - (he - 0.25) / 1.2)));
     return { vx: dx * v, vz: dz * v, heading };
   }
 }
