@@ -17,7 +17,7 @@ await page.goto('http://localhost:4190/');
 await page.waitForFunction(() => window.__viewer?.state.ready, null, { timeout: 180000 });
 await page.evaluate(() => window.__viewer.api.enterSim('free'));
 await page.waitForFunction(() => window.__viewer.state.sim?.active && window.__viewer.state.sim.backend?.frame, null, { timeout: 180000 });
-await page.waitForFunction(() => !window.__viewer.viewer.revealing, null, { timeout: 60000 });
+await page.waitForFunction(() => !window.__viewer.viewer.revealing, null, { timeout: 400000 });
 await page.evaluate(() => { document.getElementById('ui').style.visibility = 'hidden'; window.__viewer.state.idleReset = false; });
 
 /** Runs a scenario: setup(sim) in the page, then `frames` shots `every` sim-frames apart from a fixed camera. */

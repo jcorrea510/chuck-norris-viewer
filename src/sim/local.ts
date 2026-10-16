@@ -23,7 +23,17 @@ export function frameOf(w: SimWorld, alpha: number, steps: number, physMs: numbe
       squashT: c(f.squashT), squashA: c(f.squashA), squashN: c(f.squashN), vel: c(f.vel), dragF: c(f.dragF), liftF: c(f.liftF),
     },
     netHits: w.hubs.netHits.map((h) => ({ ...h })),
-    debug: debug ? (() => { const d = w.engine.world.debugRender(); return { vertices: d.vertices.slice(), colors: d.colors.slice() }; })() : undefined,
+    debug: debug ? (() => {
+      const d = w.engine.world.debugRender();
+      // the robot's contact points (field and FUEL), as the solver sees them
+      const pts: number[] = [];
+      const W = w.engine.world, b = w.robot.body;
+      for (let k = 0; k < b.numColliders(); k++) {
+        const c = b.collider(k);
+        W.contactPairsWith(c, (o) => W.contactPair(c, o, (m) => { for (let i = 0; i < m.numSolverContacts() && pts.length < 600; i++) { const p = m.solverContactPoint(i); pts.push(p.x, p.y, p.z); } }));
+      }
+      return { vertices: d.vertices.slice(), colors: d.colors.slice(), contacts: new Float32Array(pts) };
+    })() : undefined,
   };
 }
 

@@ -323,6 +323,27 @@ describe('shooter, indexer, scoring', () => {
   });
 });
 
+describe('shooting on the move', () => {
+  test('strafing across our zone at speed, the lead keeps most shots in', async () => {
+    for (const v of [0, 0.6]) {
+      const w = await driverWorld(-6.3, -2.4, Math.PI / 2);
+      const r = w.robot;
+      const spare = Array.from({ length: w.fuel.n }, (_, i) => i).filter((i) => w.fuel.st[i] === BS.FREE && w.fuel.pos[i * 3] > -1 && w.fuel.pos[i * 3] < 1).slice(0, 16);
+      r.preload(spare);
+      run(w, 0.8, input({ shoot: true }));   // spin up, settle
+      const before = w.hubs.scoredBy[0], shots0 = r.shotsFired;
+      // drive across the zone (z from −2.4 toward +2.4) at v × 4.7 m/s while holding Shoot
+      run(w, 2.0, input({ shoot: true, mz: v }));
+      run(w, 0.4, input({ shoot: true }));
+      run(w, 2.5, NO_INPUT);
+      const shots = r.shotsFired - shots0, scored = w.hubs.scoredBy[0] - before;
+      log(`shooting while strafing at ${(v * 4.7).toFixed(1)} m/s: ${scored}/${shots} scored`);
+      expect(shots).toBeGreaterThan(8);
+      expect(scored / shots).toBeGreaterThan(v ? 0.5 : 0.8);
+    }
+  });
+});
+
 describe('determinism and invariants', () => {
   test('same seed, same match', async () => {
     const sig = async () => {

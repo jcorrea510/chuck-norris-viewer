@@ -40,6 +40,7 @@ Before = last night's hand-made engine. After = Rapier, with every value sourced
 | Over a Bump at speed | fake tilt | real pitch 10–17° (the chassis rides on four wheels) |
 | Net catch at 20 m/s | — | stopped within 1 cm of the net plane, 0.4 m/s rebound |
 | 30 shots from one spot (2.5 m) | — | 30/30 scored, 13 cm (1σ) spread at the rim |
+| Shooting while strafing at 2.8 m/s | — | 12/13 scored (the turrets lead the HUB by speed × flight time) |
 | Robot left alone, 60 s | — | scores ~100–110 FUEL by itself |
 
 Screenshots: `shots/chromium/` and `shots/sim-look/`.

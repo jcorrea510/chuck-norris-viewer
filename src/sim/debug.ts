@@ -1,5 +1,6 @@
-// ?debug=physics: frame and physics times, awake bodies, every collider as a wireframe, and the
-// velocity (white), drag (red) and Magnus (blue) vectors of each ball in the air.
+// ?debug=physics: frame and physics times, awake bodies, every collider as a wireframe, the robot's
+// contact points (yellow), and the velocity (white), drag (red) and Magnus (blue) vectors of each
+// ball in the air.
 import * as THREE from 'three';
 import type { Frame } from './backend';
 import { BS } from './phys/fuel';
@@ -8,6 +9,7 @@ export class DebugOverlay {
   private el: HTMLElement;
   private lines: THREE.LineSegments;
   private vec: THREE.LineSegments;
+  private contacts: THREE.Points;
   private worstFrame = 0;
   private t = 0;
   private hist: number[] = [];
@@ -25,6 +27,10 @@ export class DebugOverlay {
     this.vec.frustumCulled = false;
     this.vec.renderOrder = 101;
     parent.add(this.vec);
+    this.contacts = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffe14a, size: 7, sizeAttenuation: false, depthTest: false }));
+    this.contacts.frustumCulled = false;
+    this.contacts.renderOrder = 102;
+    parent.add(this.contacts);
   }
 
   update(fr: Frame, frameMs: number) {
@@ -34,11 +40,12 @@ export class DebugOverlay {
     this.worstFrame = Math.max(...this.hist);
     this.t++;
     // colliders (Rapier's own debug renderer), refreshed a few times a second
-    if (fr.debug && this.t % 10 === 1) {
+    if (fr.debug) {
       const g = this.lines.geometry;
       g.setAttribute('position', new THREE.BufferAttribute(fr.debug.vertices, 3));
       g.setAttribute('color', new THREE.BufferAttribute(fr.debug.colors, 4));
     }
+    if (fr.debug) this.contacts.geometry.setAttribute('position', new THREE.BufferAttribute(fr.debug.contacts, 3));
     const f = fr.fuel;
     const pos: number[] = [], col: number[] = [];
     const seg = (o: number, v: Float32Array, k: number, c: number[]) => {
@@ -68,5 +75,5 @@ export class DebugOverlay {
     }
   }
 
-  dispose() { this.el.remove(); this.parent.remove(this.lines); this.parent.remove(this.vec); }
+  dispose() { this.el.remove(); this.parent.remove(this.lines); this.parent.remove(this.vec); this.parent.remove(this.contacts); }
 }

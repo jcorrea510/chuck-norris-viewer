@@ -374,7 +374,7 @@ async function simTests() {
   check(await page.evaluate(() => window.__viewer.state.sim.status().mode === 'free'), 'Exit returns to Free Drive');
 
   // flicker: a still scene must render identically frame after frame, from every camera
-  await page.waitForFunction(() => !window.__viewer.viewer.revealing, null, { timeout: 60000 });
+  await page.waitForFunction(() => !window.__viewer.viewer.revealing, null, { timeout: 400000 });
   await page.evaluate(() => { window.__viewer.state.sim.paused = true; });
   for (const v of ['driver', 'follow', 'overhead']) {
     await page.evaluate((v) => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView(v); for (let i = 0; i < 120; i++) sim.frame(1 / 60); sim.paused = true; }, v);

@@ -32,7 +32,7 @@ export interface Frame {
   impacts: number[];
   respawned: boolean;
   plannerWorst: number;
-  debug?: { vertices: Float32Array; colors: Float32Array };
+  debug?: { vertices: Float32Array; colors: Float32Array; contacts: Float32Array };
 }
 
 export interface Backend {

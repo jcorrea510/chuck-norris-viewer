@@ -89,6 +89,7 @@ export class Simulation {
   private debug: DebugOverlay | null = null;
   private lastRaw: RawInput | null = null;
   private frameMs = 0;
+  private debugN = 0;
   view: SimView = 'driver';
   alliance: Alliance = 'red';
   autoOrbit = false;
@@ -388,7 +389,7 @@ export class Simulation {
     const input = raw.active || raw.handBack || st0.control === 'driver' || st0.mode === 'highscore' ? this.driverInput(raw) : NO_INPUT;
     // the physics advances in its worker at a fixed 120 Hz; we draw its latest frame,
     // interpolated between its last two steps
-    this.backend.tick(dt, input, !!this.debug);
+    this.backend.tick(dt, input, !!this.debug && this.debugN++ % 10 === 0);
     const fr = this.f, r = fr.robot;
     this.pad?.setIntake(r.rollers === 'in');
     this.present(fr.alpha);
