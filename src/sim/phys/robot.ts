@@ -129,7 +129,9 @@ export class Robot {
   constructor(private eng: Engine, private fuel: Fuel, private rng: Rng, private floorAt: (x: number, z: number) => number) {
     const Rp = eng.R;
     this.aim = AimTable.shared();
-    const bd = Rp.RigidBodyDesc.dynamic().setCcdEnabled(true).setCanSleep(false)
+    // the robot's contacts start 6 cm (one 120 Hz step at full speed) before it touches anything (soft CCD prediction), so at full
+    // speed into a wall it overlaps by at most ~1 cm for one step (tests/phys/realism.test.ts)
+    const bd = Rp.RigidBodyDesc.dynamic().setCcdEnabled(true).setSoftCcdPrediction(0.06).setCanSleep(false)
       .setAdditionalMassProperties(ROBOT.mass, { x: ROBOT.com[0], y: ROBOT.com[1], z: ROBOT.com[2] },
         { x: ROBOT.inertia[0], y: ROBOT.inertia[1], z: ROBOT.inertia[2] }, { x: 0, y: 0, z: 0, w: 1 })
       .setLinearDamping(0.02).setAngularDamping(0.05);
@@ -148,6 +150,10 @@ export class Robot {
     add(Rp.ColliderDesc.cuboid(B.hx, bh, d).setTranslation(0, by, -B.hz + d), IG.bumper, 'bumper');
     add(Rp.ColliderDesc.cuboid(d, bh, B.hz - 2 * d).setTranslation(B.hx - d, by, 0), IG.bumper, 'bumper');
     add(Rp.ColliderDesc.cuboid(d, bh, B.hz - 2 * d).setTranslation(-B.hx + d, by, 0), IG.bumper, 'bumper');
+    // for fuel, the bumpers reach the carpet (3.7 cm under them: a 15 cm ball can never get in) and
+    // the space under the frame is closed, so the robot can never drive over or swallow a ball
+    const BALLONLY = groups(GROUP.ROBOT_BALL, GROUP.BALL);
+    add(Rp.ColliderDesc.cuboid(B.hx, 0.03, B.hz).setTranslation(0, 0.03, 0), BALLONLY, 'bumper');
     // frame and belly pan (field only: fuel can't reach inside the bumpers)
     add(Rp.ColliderDesc.cuboid(0.356, 0.11, 0.343).setTranslation(0, 0.158, 0), IG.hull);
     // superstructure: hopper walls and turrets, up to 0.549 m (field only)

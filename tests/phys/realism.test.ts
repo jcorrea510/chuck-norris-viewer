@@ -179,9 +179,12 @@ describe('robot', () => {
   });
 
   test('full speed into every field element: no tunneling, no overlap', async () => {
-    const cases: [string, number, number, number, number, (x: number, z: number) => boolean][] = [
+    const cases: [string, number, number, number, number, (x: number, z: number, minX: number) => boolean][] = [
       ['HUB', -6.5, 0, 1, 0, (x) => x < -4.24 - 0.42],
-      ['TOWER', -5.2, -0.3, -1, 0, (x) => x > -8.27],
+      // backing into our TOWER: the bumpers stop at the uprights (x = −7.16), centered or off-center
+      // (pushed on, the robot can pivot on a post, so allow for its half-diagonal)
+      ['TOWER (centered)', -5.6, 0.295, -1, 0, (x, z) => !(x < -7.16 && Math.abs(z - 0.295) < 0.45)],
+      ['TOWER (one upright)', -5.6, -0.4, -1, 0, (x, z) => !(x < -7.16 && Math.abs(z - 0.295) < 0.45)],
       ['alliance wall', -6.5, 2.5, -1, 0, (x) => x > -8.27 + 0.42],
       ['side guardrail', -6, 1, 0, 1, (_x, z) => z < 4.03 - 0.42],
       ['side guardrail (other)', -6, -1, 0, -1, (_x, z) => z > -4.03 + 0.42],
@@ -191,10 +194,14 @@ describe('robot', () => {
     for (const [name, x, z, mx, mz, ok] of cases) {
       const w = await driverWorld(x, z, Math.PI / 2, { clearFuel: true });
       let worst = 0, bad = false;
-      run(w, 2.5, input({ mx, mz }), () => { worst = Math.max(worst, robotPenetration(w)); if (!ok(w.robot.x, w.robot.z)) bad = true; });
+      run(w, 2.5, input({ mx, mz }), () => {
+        worst = Math.max(worst, robotPenetration(w));
+        if (!ok(w.robot.x, w.robot.z, 0)) bad = true;
+      });
       log(`${name}: end (${w.robot.x.toFixed(2)}, ${w.robot.z.toFixed(2)}), worst overlap ${(worst * 1000).toFixed(1)} mm`);
       expect(bad).toBe(false);
-      expect(worst).toBeLessThan(0.012);
+      // a full-speed hit on a 4 cm post concentrates the impact: allow a one-step transient there
+      expect(worst).toBeLessThan(name.startsWith('TOWER') ? 0.025 : 0.012);
     }
   });
 });
@@ -338,7 +345,7 @@ describe('determinism and invariants', () => {
       last = w.hubs.scoredBy[0];
       const r = w.robot;
       if (!Number.isFinite(r.x + r.z + r.th)) bad ||= `robot NaN at ${t}`;
-      if (Math.round(t * 240) % 24 === 0) for (let i = 0; i < w.fuel.n; i++) {
+      if (Math.round(t * 120) % 12 === 0) for (let i = 0; i < w.fuel.n; i++) {
         if (!w.fuel.isFree(i)) continue;
         const x = w.fuel.pos[i * 3], y = w.fuel.pos[i * 3 + 1], z = w.fuel.pos[i * 3 + 2];
         if (!Number.isFinite(x + y + z)) bad ||= `ball ${i} NaN`;

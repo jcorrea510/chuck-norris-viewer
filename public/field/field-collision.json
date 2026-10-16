@@ -4,23 +4,23 @@
   {
    "kind": "hdpe",
    "vertexOffset": 0,
-   "vertexCount": 899,
-   "indexOffset": 10788,
-   "indexCount": 3609
+   "vertexCount": 900,
+   "indexOffset": 10800,
+   "indexCount": 3525
   },
   {
    "kind": "polycarb",
-   "vertexOffset": 25224,
+   "vertexOffset": 24900,
    "vertexCount": 900,
-   "indexOffset": 36024,
+   "indexOffset": 35700,
    "indexCount": 3975
   },
   {
    "kind": "steel",
-   "vertexOffset": 51924,
-   "vertexCount": 6024,
-   "indexOffset": 124212,
-   "indexCount": 40155
+   "vertexOffset": 51600,
+   "vertexCount": 5788,
+   "indexOffset": 121056,
+   "indexCount": 37254
   }
  ]
 }

@@ -27,7 +27,7 @@ export class Drivepad {
     this.stick(this.el.querySelector('.dp-turn')!, (x) => { this.state.turn = x; }, true);
     const shoot = this.el.querySelector<HTMLButtonElement>('.dp-shoot')!;
     const set = (on: boolean) => { this.state.shoot = on; shoot.classList.toggle('on', on); };
-    shoot.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); shoot.setPointerCapture(e.pointerId); set(true); if (navigator.vibrate) navigator.vibrate(6); });
+    shoot.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); try { shoot.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ } set(true); if (navigator.vibrate) navigator.vibrate(6); });
     for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) shoot.addEventListener(t, () => set(false));
     this.intakeBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.state.intakeTap = true; if (navigator.vibrate) navigator.vibrate(6); });
     for (const b of [shoot, this.intakeBtn]) b.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -52,7 +52,7 @@ export class Drivepad {
       if (id !== -1) return;
       e.preventDefault(); e.stopPropagation();
       id = e.pointerId;
-      zone.setPointerCapture(id);
+      try { zone.setPointerCapture(id); } catch { /* synthetic pointer */ }
       const r = zone.getBoundingClientRect();
       cx = e.clientX; cy = e.clientY;
       base.style.left = `${cx - r.left}px`; base.style.top = `${cy - r.top}px`;

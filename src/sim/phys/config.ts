@@ -6,7 +6,9 @@ export const G = 9.81;
 /** air density at sea level, 20 °C (kg/m³) */
 export const RHO = 1.2;
 
-export const STEP_HZ = 240;
+/** 120 Hz with CCD on every ball: chosen by benchmark (240 Hz cost twice the time for no visible
+ *  difference; every spring in the model has ω·dt < 0.6, comfortably stable). See PHYSICS.md. */
+export const STEP_HZ = 120;
 export const STEP = 1 / STEP_HZ;
 
 // ------------------------------------------------------------------ FUEL

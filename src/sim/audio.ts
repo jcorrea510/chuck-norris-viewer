@@ -6,7 +6,7 @@
 //   impacts  low, short foam thuds scaled by impact speed and surface, rate-limited so a field of
 //            500 balls never turns into noise
 // Off by default (see overnight/MORNING.md for the listening verdict).
-import type { SimWorld } from './world';
+import type { Frame } from './backend';
 import { DRIVE, ROBOT } from './phys/config';
 
 const PINION = 14;          // teeth on the drive pinion (gear mesh = 14 × motor rev/s)
@@ -68,7 +68,7 @@ export class SimAudio {
     }
   }
 
-  update(w: SimWorld, pan: number, dist: number) {
+  update(w: Frame, pan: number, dist: number) {
     const c = this.ctx;
     if (!c || !this.enabled || !this.drive || !this.pan) return;
     const t = c.currentTime;

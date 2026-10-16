@@ -1,6 +1,6 @@
 // Simulation mode: Chuck Norris on the 2026 REBUILT field. The physics and the game live in
-// world.ts (Rapier, fixed 240 Hz step, no rendering); this file draws them, interpolating every
-// body between the last two physics steps, points the three cameras, and turns the driver's
+// world.ts (Rapier, fixed 120 Hz step, no rendering), which runs in a Web Worker (backend.ts); this
+// file draws its frames, interpolating every body between the last two physics steps, points the three cameras, and turns the driver's
 // controls into field-relative commands.
 // Field: AdvantageScope "2026 FRC Field" (BSD-3). Internally our alliance is always at −X; playing
 // blue turns the whole scene 180° and swaps the alliance colors (the field is rotationally symmetric).
@@ -8,12 +8,15 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { Viewer } from '../viewer';
-import { initRapier, type CollisionIndex } from './phys/engine';
+import type { CollisionIndex } from './phys/engine';
 import { BS, SQUASH_TIME } from './phys/fuel';
-import { FUEL, STEP } from './phys/config';
+import { FUEL } from './phys/config';
 import { HUB } from './phys/hub';
-import { SimWorld, NO_INPUT, type FieldData, type SimMode, type SimStatus, type DriverInput, type HsPhase } from './world';
-import { WorkerPlanner } from './planner';
+import { NO_INPUT } from './input';
+import type { SimWorld, FieldData, SimMode, SimStatus, DriverInput, HsPhase } from './world';
+import { FieldGrid } from './field';
+import { WorkerBackend, type Backend, type Frame } from './backend';
+import { ROBOT } from './phys/config';
 import { DriverControls, type RawInput } from './input';
 import { Drivepad } from './drivepad';
 import { SimAudio } from './audio';
@@ -62,14 +65,17 @@ class Spring1 {
 
 export class Simulation {
   private group = new THREE.Group();
-  world!: SimWorld;
+  backend!: Backend;
+  field!: FieldGrid;
+  /** the latest frame from the physics */
+  get f(): Frame { return this.backend.frame!; }
+  private lastPhase: HsPhase | null = null;
   readonly controls = new DriverControls();
   private pad: Drivepad | null = null;
   private inst!: THREE.InstancedMesh;
   private shadows!: THREE.InstancedMesh;
   private nets: { mesh: THREE.Mesh; base: Float32Array; hub: number }[] = [];
   private fieldMats: { mat: THREE.MeshStandardMaterial; color: THREE.Color }[] = [];
-  private acc = 0;
   private hook = (dt: number) => this.frame(dt);
   private saved: Record<string, unknown> | null = null;
   private lod: Map<string, THREE.BufferGeometry> | null = null;
@@ -97,10 +103,12 @@ export class Simulation {
 
   constructor(private viewer: Viewer) {}
 
-  get mode(): SimMode { return this.world?.mode ?? 'free'; }
-  get robot() { return this.world.robot; }
-  get fuel() { return this.world.fuel; }
-  get grid() { return this.world.field; }
+  get mode(): SimMode { return this.backend?.frame?.status.mode ?? 'free'; }
+  get robot() { return this.f.robot; }
+  get fuel() { return this.f.fuel; }
+  get grid() { return this.field; }
+  /** the world itself, when it runs on this thread (tests) */
+  get world(): SimWorld | null { return (this.backend as { world?: SimWorld }).world ?? null; }
 
   async start(mode: SimMode = 'free', alliance: Alliance = 'red', view: SimView = 'driver') {
     const v = this.viewer;
@@ -114,7 +122,6 @@ export class Simulation {
       loader.loadAsync('models/chuck-norris-sim.glb').catch(() => null),
       fetch('field/field-collision.bin').then((r) => r.arrayBuffer()),
       fetch('field/field-collision.json').then((r) => r.json() as Promise<CollisionIndex>),
-      initRapier(),
     ]);
     this.lod = new Map();
     lodGltf?.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) this.lod!.set(m.name, m.geometry); });
@@ -122,18 +129,23 @@ export class Simulation {
     this.group.add(gltf.scene);
 
     const debug = new URLSearchParams(location.search).get('debug') === 'physics';
-    this.world = new SimWorld(data, { bin, index }, (Date.now() & 0xffff) || 1, new WorkerPlanner(data.grid, data.hubs));
-    const w = this.world;
-    w.bestStore = {
-      get: () => { try { return Number(localStorage.getItem('chuck-norris-highscore') ?? 0) || 0; } catch { return 0; } },
-      set: (n) => { try { localStorage.setItem('chuck-norris-highscore', String(n)); } catch { /* private mode */ } },
-    };
-    w.onRespawn = () => this.onRespawn?.();
-    w.onHsPhase = (p) => this.onHsPhase?.(p);
-    w.fuel.onImpact = (i, sp, x, y, z) => this.audio.impact(sp, this.panOf(x, z), this.distTo(x, y, z), y < FUEL.radius + 0.02 ? 'carpet' : 'hard');
+    const seed = (Date.now() & 0xffff) || 1;
+    this.field = new FieldGrid(data.grid, data.hubs);
+    const local = new URLSearchParams(location.search).get('physics') === 'main' || (window as unknown as { __simLocal?: boolean }).__simLocal;
+    if (local) {
+      const [{ LocalBackend }, { SimWorld }, { WorkerPlanner }, { initRapier }] = await Promise.all([import('./local'), import('./world'), import('./planner'), import('./phys/engine')]);
+      await initRapier();
+      this.backend = new LocalBackend(new SimWorld(data, { bin, index }, seed, new WorkerPlanner(data.grid, data.hubs)));
+      if (mode !== 'free') this.backend.setMode(mode);
+    }
+    else {
+      const wb = new WorkerBackend(data, { bin, index }, seed, mode);
+      await wb.ready;
+      this.backend = wb;
+    }
     this.buildFuel();
     this.buildNets();
-    if (debug) this.debug = new DebugOverlay(this.group, w);
+    if (debug) this.debug = new DebugOverlay(this.group);
 
     // take over the stage
     const kl = v.keyLight, sc = kl.shadow.camera;
@@ -166,12 +178,12 @@ export class Simulation {
     v.stage.position.set(0, 0, 0); v.stage.quaternion.identity();
     v.stage.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(v.stage.matrixWorld).invert();
-    this.moduleMech = w.robot.modules.map((m) => {
+    this.moduleMech = ROBOT.modules.map(([px, pz]) => {
       let best = '', bd = Infinity, h0 = 0;
       for (const [id, mech] of v.mechanisms) {
         if (!id.startsWith('module-')) continue;
         const p = mech.node.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
-        const d = Math.hypot(p.x - m.px, p.z - m.pz);
+        const d = Math.hypot(p.x - px, p.z - pz);
         if (d < bd) { bd = d; best = id; const r = Math.hypot(p.x, p.z) || 1; h0 = Math.atan2(-p.z / r, p.x / r); }
       }
       return { id: best, h0 };
@@ -220,7 +232,7 @@ export class Simulation {
 
   /** All FUEL: one instanced draw call (foam with a subtle seam so spin shows), plus blob shadows. */
   private buildFuel() {
-    const n = this.world.fuel.n;
+    const n = this.f.fuel.n;
     const cv = document.createElement('canvas');
     cv.width = 256; cv.height = 128;
     const g = cv.getContext('2d')!;
@@ -279,8 +291,9 @@ export class Simulation {
   }
 
   setMode(mode: SimMode) {
-    this.world.setMode(mode);
-    this.acc = 0;
+    this.backend.setMode(mode);
+    this.lastPhase = null;
+    this.runId++;
     this.writeFuel(1);
     this.present(1);
     this.aimCamera(0);
@@ -300,7 +313,7 @@ export class Simulation {
       f.mat.color.copy(blue ? (red ? new THREE.Color(0, 0, 1) : new THREE.Color(1, 0, 0)) : f.color);
     }
     this.viewer.setBumperColor(a);
-    if (this.world) { this.present(1); this.aimCamera(0); }
+    if (this.backend?.frame) { this.present(1); this.aimCamera(0); }
   }
 
   stop() {
@@ -337,7 +350,7 @@ export class Simulation {
       m.angle.smoothTime = m.type === 'fourbar' ? 0.42 : 0.32;
       v.setMechanism(m.id, m.def, true);
     }
-    this.world.dispose();
+    this.backend.dispose();
     this.active = false;
     this.saved = null;
     v.invalidate(true);
@@ -345,7 +358,7 @@ export class Simulation {
 
   setView(view: SimView) { this.view = view; }
   nextView() { const i = SIM_VIEWS.findIndex((x) => x.id === this.view); this.setView(SIM_VIEWS[(i + 1) % SIM_VIEWS.length].id); }
-  handBack() { this.world.resumeAI(); }
+  handBack() { this.backend.resumeAI(); }
   setTouchControls(on: boolean) { this.touchControls = on; }
   setSound(on: boolean, volume: number) { this.audio.setEnabled(on, volume); }
 
@@ -364,27 +377,20 @@ export class Simulation {
   frame(dt: number): boolean {
     if (!this.active || this.paused) return true;
     const t0 = performance.now();
-    const w = this.world, r = w.robot;
     this.pad?.setVisible(this.touchControls);
-    this.pad?.setIntake(r.rollers === 'in');
     const raw = this.controls.read();
     this.lastRaw = raw;
     if (raw.active || raw.handBack || raw.camera) this.onActivity?.();
     if (raw.camera) this.nextView();
-    const input = raw.active || raw.handBack || w.control === 'driver' || w.mode === 'highscore' ? this.driverInput(raw) : NO_INPUT;
-    // fixed 240 Hz steps; the render interpolates between the last two
-    this.acc += Math.min(dt, 0.1);
-    let steps = 0, phys = 0;
-    while (this.acc >= STEP && steps < 16) {
-      this.acc -= STEP;
-      w.step(steps === 0 ? input : { ...input, toggleArm: false, toggleIntake: false, handBack: false });
-      phys += w.stepMs;
-      steps++;
-    }
-    if (steps === 16) this.acc = 0;
-    const alpha = this.acc / STEP;
-    this.present(alpha);
-    this.writeFuel(alpha);
+    const st0 = this.f.status;
+    const input = raw.active || raw.handBack || st0.control === 'driver' || st0.mode === 'highscore' ? this.driverInput(raw) : NO_INPUT;
+    // the physics advances in its worker at a fixed 120 Hz; we draw its latest frame,
+    // interpolated between its last two steps
+    this.backend.tick(dt, input, !!this.debug);
+    const fr = this.f, r = fr.robot;
+    this.pad?.setIntake(r.rollers === 'in');
+    this.present(fr.alpha);
+    this.writeFuel(fr.alpha);
     this.updateNets();
     this.aimCamera(dt);
     // key light follows the robot so its shadows stay crisp
@@ -393,20 +399,28 @@ export class Simulation {
     kl.position.set(rp.x + 2.4, 6.5, rp.z + 3.2);
     kl.target.position.copy(rp);
     kl.target.updateMatrixWorld();
-    this.audio.update(w, this.panOf(r.x, r.z), this.distTo(r.x, 0.3, r.z));
+    this.audio.update(fr, this.panOf(r.x, r.z), this.distTo(r.x, 0.3, r.z));
+    for (let k = 0; k < fr.impacts.length; k += 4) {
+      const [sp, x, y, z] = fr.impacts.slice(k, k + 4);
+      this.audio.impact(sp, this.panOf(x, z), this.distTo(x, y, z), y < FUEL.radius + 0.02 ? 'carpet' : 'hard');
+    }
+    fr.impacts.length = 0;
+    if (fr.respawned) { fr.respawned = false; this.onRespawn?.(); }
+    const ph = fr.status.hs?.phase ?? null;
+    if (ph !== this.lastPhase) { this.lastPhase = ph; if (ph) this.onHsPhase?.(ph); }
     this.statusClock += dt;
     if (this.statusClock > 0.1) { this.statusClock = 0; this.emit(); }
-    this.debug?.update(this.frameMs, phys, steps, alpha);
+    this.debug?.update(fr, this.frameMs);
     this.frameMs = performance.now() - t0;
     return true;
   }
 
   /** The robot: chassis pose (interpolated), mechanisms, swerve modules. */
   private present(alpha: number) {
-    const v = this.viewer, r = this.world.robot;
+    const v = this.viewer, r = this.f.robot;
     const st = v.stage;
     const p = new THREE.Vector3().fromArray(r.prevP).lerp(new THREE.Vector3().fromArray(r.p), alpha);
-    const q = new THREE.Quaternion(r.prevQ.x, r.prevQ.y, r.prevQ.z, r.prevQ.w).slerp(new THREE.Quaternion(r.q.x, r.q.y, r.q.z, r.q.w), alpha);
+    const q = new THREE.Quaternion().fromArray(r.prevQ).slerp(new THREE.Quaternion().fromArray(r.q), alpha);
     if (this.alliance === 'blue') { p.applyMatrix4(this.flip); q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI)); }
     st.position.copy(p);
     st.quaternion.copy(q);
@@ -423,7 +437,7 @@ export class Simulation {
   }
 
   private writeFuel(alpha: number) {
-    const f = this.world.fuel;
+    const f = this.f.fuel;
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), q1 = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
     const hide = new THREE.Matrix4().makeScale(0, 0, 0);
     const sq = new THREE.Matrix4(), rn = new THREE.Matrix4(), n = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), qa = new THREE.Quaternion();
@@ -449,7 +463,7 @@ export class Simulation {
       }
       this.inst.setMatrixAt(i, m);
       // contact shadow on the floor below (none for fuel inside the robot or off the field)
-      const fh = this.world.field.floor(p.x, p.z);
+      const fh = this.field.floor(p.x, p.z);
       const hgt = p.y - FUEL.radius - fh;
       if (st === BS.PARKED || st === BS.INDEXER || hgt > 1.5 || Math.abs(p.x) > 8.3 || Math.abs(p.z) > 4.05 || this.onRobot(p)) { this.shadows.setMatrixAt(i, hide); continue; }
       const sc = Math.max(0.35, 1 - hgt * 0.5);
@@ -461,7 +475,7 @@ export class Simulation {
   }
 
   private onRobot(p: THREE.Vector3) {
-    const r = this.world.robot;
+    const r = this.f.robot;
     const dx = p.x - r.x, dz = p.z - r.z;
     if (dx * dx + dz * dz > 0.6) return false;
     const c = Math.cos(r.th), s = Math.sin(r.th);
@@ -470,7 +484,7 @@ export class Simulation {
   }
 
   private updateNets() {
-    const hits = this.world.hubs.netHits;
+    const hits = this.f.netHits;
     for (const n of this.nets) {
       const pos = n.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
       const a = pos.array as Float32Array;
@@ -501,7 +515,7 @@ export class Simulation {
   }
 
   private aimCamera(dt: number) {
-    const v = this.viewer, r = this.world.robot, cam = v.camera;
+    const v = this.viewer, r = this.f.robot, cam = v.camera;
     const aspect = cam.aspect || 1.4;
     const pos = new THREE.Vector3(), tgt = new THREE.Vector3();
     let fov = 50;
@@ -555,6 +569,24 @@ export class Simulation {
     this.onStatus?.({ mode, scored: 0, rate: 0, shooting: false, ferry: false, outOfRange: false, control: 'ai', resumeIn: null, intakeDown: true, rollers: false, stored: 0, capacity: 0, hs: null, loading: true });
   }
   private emit() { this.onStatus?.(this.status()); }
-  status(): SimStatus { return this.world.status(); }
+  /** personal best lives in this browser (the physics worker has no storage) */
+  private bestFor: unknown = null;
+  private best = { best: 0, newBest: false };
+  private withBest(s: SimStatus): SimStatus {
+    const r = s.hs?.result;
+    if (!r) return s;
+    if (this.bestFor !== this.lastResultKey(s)) {
+      this.bestFor = this.lastResultKey(s);
+      let prev = 0;
+      try { prev = Number(localStorage.getItem('chuck-norris-highscore') ?? 0) || 0; } catch { /* private mode */ }
+      const newBest = r.score > prev;
+      if (newBest) try { localStorage.setItem('chuck-norris-highscore', String(r.score)); } catch { /* ignore */ }
+      this.best = { best: Math.max(prev, r.score), newBest };
+    }
+    return { ...s, hs: { ...s.hs!, result: { ...r, ...this.best } } };
+  }
+  private lastResultKey(s: SimStatus) { return `${this.runId}:${s.hs?.result?.score}`; }
+  private runId = 0;
+  status(): SimStatus { return this.withBest(this.f.status); }
   get inputSource() { return this.lastRaw?.source ?? null; }
 }

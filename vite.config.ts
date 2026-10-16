@@ -5,6 +5,7 @@ export default defineConfig({
   // Relative base so the site works under https://<user>.github.io/<repo>/
   base: './',
   build: { target: 'es2022', chunkSizeWarningLimit: 2600 },
+  worker: { format: 'es' },
   plugins: [
     VitePWA({
       registerType: 'prompt',

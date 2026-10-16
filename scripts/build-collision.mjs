@@ -41,6 +41,12 @@ for (const n of doc.getRoot().listNodes()) {
       // driver stations and everything outside the field perimeter never touch a robot or FUEL in play
       const xs = Math.min(Math.abs(a[0]), Math.abs(b[0]), Math.abs(d[0]));
       if (xs > 8.9) { dropped++; continue; }
+      // the TRENCH arms over the lanes are solid boxes in the engine (Engine.addTrenchArms): a thin
+      // triangle bar gives bogus contacts to a robot passing just under it
+      const cx = (a[0] + b[0] + d[0]) / 3, cy = (a[1] + b[1] + d[1]) / 3, cz = (a[2] + b[2] + d[2]) / 3;
+      if (Math.abs(Math.abs(cx) - 3.64) < 0.11 && cy > 0.54 && cy < 0.69 && Math.abs(cz) > 2.75 && Math.abs(cz) < 4.05) { dropped++; continue; }
+      // the TOWER uprights and rungs are solid in the engine too (Engine.addTowers)
+      if (Math.abs(Math.abs(cx) - 7.205) < 0.07 && cy > 0.03 && ((cx < 0 && cz > -0.33 && cz < 0.92) || (cx > 0 && cz < 0.33 && cz > -0.92))) { dropped++; continue; }
       const kind = clear ? 'polycarb' : alliance && ymax < 0.2 ? 'hdpe' : 'steel';
       soup[kind].push(a, b, d);
     }

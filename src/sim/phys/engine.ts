@@ -49,6 +49,7 @@ export class Engine {
     ip.numSolverIterations = 4;
     ip.numAdditionalFrictionIterations = 2;
     ip.maxCcdSubsteps = 2;
+    (ip as unknown as { contact_natural_frequency: number }).contact_natural_frequency = 60;
     this.events = new R.EventQueue(true);
     // the carpet: a slab whose top is y = 0 over the whole field and beyond
     const g = R.ColliderDesc.cuboid(14, 0.5, 8).setTranslation(0, -0.5, 0)
@@ -84,6 +85,7 @@ export class Engine {
       this.surfaceOf.set(c.handle, s.kind);
     }
     this.addTrenchArms();
+    this.addTowers();
   }
 
   /**
@@ -95,7 +97,29 @@ export class Engine {
   addTrenchArms() {
     const R = this.R;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      this.fixed(R.ColliderDesc.cuboid(0.065, 0.049, 0.63).setTranslation(sx * 3.63, 0.6155, sz * 3.405), 'steel');
+      this.fixed(R.ColliderDesc.cuboid(0.081, 0.049, 0.63).setTranslation(sx * 3.64, 0.6155, sz * 3.405), 'steel');
+    }
+  }
+
+  /**
+   * Each TOWER's UPRIGHTS and RUNGS as solid steel (manual 5.8: 72.1 in tall, 1.5 × 3.5 in box
+   * uprights 32.25 in apart; 1.66 in OD rungs at 27, 45 and 63 in, reaching 5.875 in past each
+   * upright), placed where the field model has them. As thin triangle shells a robot could drive
+   * straight through them.
+   */
+  addTowers() {
+    const R = this.R, IN = 0.0254;
+    const x = 7.205, zc = 0.295;                       // our tower (internal −x); the other is rotated 180°
+    const half = (32.25 / 2 + 1.5 / 2) * IN;          // upright centers from the tower's center line
+    const rungHalf = (32.25 / 2 + 1.5 + 5.875) * IN;
+    for (const s of [-1, 1]) {
+      for (const dz of [-half, half]) {
+        this.fixed(R.ColliderDesc.cuboid(1.75 * IN, 72.1 * IN / 2, 0.75 * IN).setTranslation(s * x, 72.1 * IN / 2, s * (zc + dz)), 'steel');
+      }
+      for (const h of [27, 45, 63]) {
+        this.fixed(R.ColliderDesc.cylinder(rungHalf, 1.66 * IN / 2).setRotation({ x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 })
+          .setTranslation(s * x, h * IN, s * zc), 'steel');
+      }
     }
   }
 

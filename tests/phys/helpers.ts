@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { Engine, initRapier, type CollisionIndex } from '../../src/sim/phys/engine';
 import { SimWorld, NO_INPUT, type DriverInput } from '../../src/sim/world';
+import { STEP_HZ } from '../../src/sim/phys/config';
 
 export async function makeEngine(withField = true) {
   await initRapier();
@@ -33,14 +34,14 @@ export async function driverWorld(x: number, z: number, th: number, opts: { clea
   w.robot.setIntakeNow(opts.intakeDown ?? true);
   // the preloads ride along
   if (!opts.clearFuel) w.robot.preload(w.preloadIdx);
-  for (let k = 0; k < 120; k++) w.step(NO_INPUT);
+  for (let k = 0; k < STEP_HZ / 2; k++) w.step(NO_INPUT);
   return w;
 }
 
 export const input = (p: Partial<DriverInput>): DriverInput => ({ ...NO_INPUT, ...p });
 export function run(w: SimWorld, seconds: number, inp: DriverInput = NO_INPUT, each?: (t: number) => void) {
-  const n = Math.round(seconds * 240);
-  for (let k = 0; k < n; k++) { w.step(inp); each?.(k / 240); }
+  const n = Math.round(seconds * STEP_HZ);
+  for (let k = 0; k < n; k++) { w.step(inp); each?.(k / STEP_HZ); }
 }
 
 /** Deepest overlap (m, positive) between any robot collider and the field right now. */

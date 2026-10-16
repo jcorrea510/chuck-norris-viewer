@@ -47,6 +47,8 @@ export class Fuel {
   readonly squashT: Float32Array; readonly squashA: Float32Array; readonly squashN: Float32Array;
   /** restitution bucket currently set on each collider */
   private eBucket: Int16Array;
+  /** how long each ball has been (nearly) still on the floor */
+  private still: Float32Array;
   /** the robot that launched a ball ignores it briefly (it leaves through the hood) */
   readonly launchT: Float32Array;
   /** forces applied last step, for the debug overlay */
@@ -66,6 +68,7 @@ export class Fuel {
     this.squashT = new Float32Array(this.n); this.squashA = new Float32Array(this.n); this.squashN = new Float32Array(this.n * 3);
     this.eBucket = new Int16Array(this.n).fill(-1);
     this.launchT = new Float32Array(this.n);
+    this.still = new Float32Array(this.n);
     this.dragF = new Float32Array(this.n * 3); this.liftF = new Float32Array(this.n * 3);
     for (let i = 0; i < this.n; i++) {
       const m = Math.max(0.203, Math.min(0.227, FUEL.mass + rng.gauss() * FUEL.massSpread));
@@ -202,6 +205,11 @@ export class Fuel {
       }
       this.vel[o] = v.x; this.vel[o + 1] = v.y; this.vel[o + 2] = v.z;
       const x = this.pos[o], y = this.pos[o + 1], z = this.pos[o + 2];
+      // at rest on the floor for 0.4 s: put it to sleep (Rapier would wait ~2 s); any contact from
+      // something moving wakes it again
+      if (dv < 0.05 && Math.hypot(v.x, v.y, v.z) < 0.04 && y < this.floor(x, z) + FUEL.radius + 0.01) {
+        if ((this.still[i] += STEP) > 0.4) { b.sleep(); this.still[i] = 0; }
+      } else this.still[i] = 0;
       if (!Number.isFinite(x + y + z) || Math.abs(x) > 8.45 || Math.abs(z) > 4.25 || y < -0.05 || y > 15) onLost(i);
     }
   }
