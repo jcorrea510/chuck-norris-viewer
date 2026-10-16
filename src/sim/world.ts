@@ -68,7 +68,8 @@ export class SimWorld {
   private chuteClock = 0;
   /** staged layout: index → start position, and which balls start parked or preloaded */
   private starts: number[][];
-  private preloadIdx: number[] = [];
+  /** the 8 FUEL preloaded in our robot */
+  preloadIdx: number[] = [];
   // High Score
   hsPhase: HsPhase = 'countdown';
   hsT = 0;
@@ -240,6 +241,7 @@ export class SimWorld {
   }
 
   takeOver() {
+    this.lastInput = this.clock;
     if (this.control === 'driver') return;
     this.control = 'driver';
     const r = this.robot;

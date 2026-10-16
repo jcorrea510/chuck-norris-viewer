@@ -136,7 +136,7 @@ export class Robot {
     this.body = eng.world.createRigidBody(bd);
     const add = (desc: RAPIER.ColliderDesc, ig: number, surface: 'bumper' | 'robot' = 'robot') => {
       desc.setDensity(0).setCollisionGroups(ig)
-        .setFriction(surface === 'bumper' ? 0.7 : 0.45).setRestitution(surface === 'bumper' ? 0.36 : 0.5)
+        .setFriction(surface === 'bumper' ? 0.5 : 0.3).setRestitution(surface === 'bumper' ? 0.2 : 0.12)
         .setFrictionCombineRule(Rp.CoefficientCombineRule.Multiply).setRestitutionCombineRule(Rp.CoefficientCombineRule.Multiply);
       const c = eng.world.createCollider(desc, this.body);
       eng.surfaceOf.set(c.handle, surface);
@@ -183,6 +183,9 @@ export class Robot {
     }
     coupler(Rp.ColliderDesc.cylinder(ROLLER.hx, ROLLER.r).setRotation(rotZ(Math.PI / 2)), ROLLER.z, ROLLER.y); // intake roller
     coupler(Rp.ColliderDesc.cuboid(0.3, 0.06, 0.01).setRotation(rotX(0.35)), 0.63, 0.29);  // kicker frame / crash bar
+    // the hopper floor over the intake (polycarb kicker ramp, back side): slopes down toward the
+    // crank rollers so fuel on it rolls back into the hopper (captured fuel passes under it)
+    coupler(Rp.ColliderDesc.cuboid(0.32, 0.008, 0.13).setRotation(rotX(-Math.atan2(0.07, 0.24))), 0.52, 0.345);
     this.modules = ROBOT.modules.map(([px, pz]) => ({ px, pz, steer: 0, wheel: 0, current: 0, supply: 0, N: 0, slip: false, contact: true, comp: 0 }));
     this.turrets = TURRETS.map((t) => ({
       id: t.id, side: t.side, pivot: t.pivot, base: t.base, a: 0, w: 0, goal: 0, err: 1,
@@ -377,9 +380,14 @@ export class Robot {
       m.supply = Math.abs(I * Vapp / Math.max(1, this.battery));
       total += m.supply;
       let Fl = (KT * I * DRIVE.gear * DRIVE.efficiency) / ROBOT.wheelRadius;
-      // tread scrub resists sideways sliding (stiff), all within this wheel's friction circle
-      const mEff = ROBOT.mass / 4;
-      let Ft = -mEff * vt / STEP * 0.45;
+      // tread scrub resists sideways sliding: the impulse that would stop this contact point's
+      // sideways motion (its effective mass includes the arm to the center of mass, which sits
+      // above the floor), shared by the four wheels, all within this wheel's friction circle
+      const com = this.toWorld(ROBOT.com[0], ROBOT.com[1], ROBOT.com[2]);
+      const ax = cp[0] - com[0], ay = cp[1] - com[1], az = cp[2] - com[2];
+      const cx = ay * tz - az * ty, cy = az * tx - ax * tz, cz = ax * ty - ay * tx;
+      const kInv = 1 / ROBOT.mass + cx * cx / ROBOT.inertia[0] + cy * cy / ROBOT.inertia[1] + cz * cz / ROBOT.inertia[2];
+      let Ft = -(vt / kInv) / STEP * 0.22;
       const onHdpe = this.floorAt(cp[0], cp[2]) > 0.01;
       const mu = onHdpe ? ROBOT.muHdpe : ROBOT.mu;
       const F = Math.hypot(Fl, Ft);
@@ -537,7 +545,10 @@ export class Robot {
         const b = f.bodies[i];
         const lv = this.velToLocal(b.linvel().x, b.linvel().y, b.linvel().z);
         const pv = this.pointVel(L[0], L[1], L[2]);
-        const want = this.velToWorld(-Math.sign(L[0]) * 0.25 * (L[2] < 0.12 ? 1 : 0), 0, -INDEXER.floorSpeed);
+        // mecanum side rollers at the back walk fuel toward the nearer lane mouth (a ball dead
+        // center goes to the lane with fewer balls)
+        const toward = Math.abs(L[0]) > 0.13 ? -Math.sign(L[0]) : L[0] > 0.01 ? 1 : L[0] < -0.01 ? -1 : this.turrets[0].lane.length <= this.turrets[1].lane.length ? 1 : -1;
+        const want = this.velToWorld(toward * 0.3 * (L[2] < 0.14 ? 1 : 0), 0, -INDEXER.floorSpeed);
         const m = f.mass[i];
         const k = 6 * m * STEP;
         b.applyImpulse({ x: (want[0] + pv[0] - b.linvel().x) * k, y: 0, z: (want[2] + pv[2] - b.linvel().z) * k }, true);
@@ -550,7 +561,7 @@ export class Robot {
       // take the next ball at this lane's mouth
       if (feeding && (t.lane.length === 0 || t.lane[t.lane.length - 1].s > 2 * R + 0.01) && t.lane.length < 3) {
         const mouth = FEED_FIXED(t.side)[0];
-        let best = -1, bd = 0.11;
+        let best = -1, bd = 0.15;
         for (const i of this.onboard) {
           const o = i * 3;
           const L = this.toLocal(f.pos[o], f.pos[o + 1], f.pos[o + 2]);
@@ -762,7 +773,9 @@ export class Robot {
       const vCorner = Math.max(0.9, DRIVE.vmax * (1 - turn / Math.PI) ** 1.6);
       v = Math.min(v, Math.sqrt(vCorner * vCorner + 2 * ACC_PLAN * (1 - t) * L));
     }
-    if (this.floorAt(this.x, this.z) > 0.02 || this.floorAt(this.x + dx * 0.7, this.z + dz * 0.7) > 0.02) v = Math.min(v, 1.6);
+    // over a BUMP with momentum: the belly (4.8 cm, CAD) scrapes the 0.16 m peak, and a robot that
+    // crawls over can beach itself on it, like a real one
+    if (this.floorAt(this.x, this.z) > 0.02 || this.floorAt(this.x + dx * 0.7, this.z + dz * 0.7) > 0.02) v = Math.max(Math.min(v, 3.4), Math.min(o.speed, 3.0));
     if (remaining < 0.06 && (!o.stopAtEnd || sp < 0.2)) { this.done = true; return { vx: 0, vz: 0, heading: this.th }; }
     if (!o.stopAtEnd && remaining < 0.25) this.done = true;
     const heading = o.segHeading?.[this.seg] ?? (o.heading === 'travel' ? Math.atan2(dx, dz) : o.heading);

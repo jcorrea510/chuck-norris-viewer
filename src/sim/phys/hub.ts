@@ -35,7 +35,7 @@ export class Hubs {
   /** red (index 0, x < 0) and blue (index 1) */
   readonly centers: [number, number][] = [[-HUB.cx, 0], [HUB.cx, 0]];
   /** which side of each net a ball is on (−1/+1, 0 = far away) */
-  private netSide: Int8Array;
+  private netSide: [Int8Array, Int8Array];
   /** per-hub queue of balls inside: ball, time left */
   private inside: { i: number; t: number; hub: number }[] = [];
   readonly netHits: NetHit[] = [];
@@ -43,7 +43,7 @@ export class Hubs {
   scoredBy = [0, 0];
 
   constructor(private eng: Engine, private fuel: Fuel, private rng: Rng) {
-    this.netSide = new Int8Array(fuel.n);
+    this.netSide = [new Int8Array(fuel.n), new Int8Array(fuel.n)];
     for (let h = 0; h < 2; h++) this.build(h);
   }
 
@@ -94,29 +94,35 @@ export class Hubs {
     for (let h = 0; h < 2; h++) {
       const [cx, cz] = this.centers[h];
       const xn = cx + Hubs.toNeutral(h) * HUB.net.off;
+      const netSide = this.netSide[h];
       for (let i = 0; i < f.n; i++) {
         const st = f.st[i];
         if (st !== BS.FREE && st !== BS.FLYING) continue;
         const o = i * 3;
         const x = f.pos[o], y = f.pos[o + 1], z = f.pos[o + 2];
-        if (Math.abs(x - xn) > 0.6 || y < HUB.net.y0 - r || y > HUB.net.y1 + r || Math.abs(z - cz) > HUB.net.hz + r) { this.netSide[i] = 0; continue; }
+        if (Math.abs(x - xn) > 0.6 || y < HUB.net.y0 - r || y > HUB.net.y1 + r || Math.abs(z - cz) > HUB.net.hz + r) { netSide[i] = 0; continue; }
         const b = f.bodies[i];
         if (b.isSleeping()) continue;
         const dx = x - xn;
-        if (this.netSide[i] === 0 || Math.abs(dx) > r) { this.netSide[i] = dx >= 0 ? 1 : -1; if (Math.abs(dx) > r) continue; }
-        const side = this.netSide[i];
+        // which side the ball came from: set while it's clear of the net, kept while it's in the
+        // net (a fast ball can pass the net's plane by more than its radius within a few steps)
+        if (netSide[i] === 0 || netSide[i] * dx > r) { netSide[i] = dx >= 0 ? 1 : -1; if (Math.abs(dx) > r) continue; }
+        const side = netSide[i];
         // penetration past the net (it gives like a stretched net, then holds)
         const depth = r - side * dx;
         if (depth <= 0) continue;
         const v = b.linvel();
         const vn = v.x * side;
-        let F = NET.k * depth - NET.c * vn;            // toward the ball's side
+        // a net is hysteretic: it stretches stiffly, but gives back little (the mesh slackens and the
+        // cords rub), so on the way out it pushes only weakly: the ball drops out of it
+        const k = vn < 0 ? NET.k : NET.k * NET.unload;
+        let F = k * depth - NET.c * vn;               // toward the ball's side
         if (F < 0) F = 0;
         const m = f.mass[i];
         let jx = side * F * STEP;
-        // the mesh grabs the ball: tangential motion dies fast
-        const jy = -v.y * m * 0.08, jz = -v.z * m * 0.12;
-        b.applyImpulse({ x: jx, y: v.y > 0 ? jy : jy * 0.3, z: jz }, true);
+        // while the ball presses in, the mesh wraps around it and drags its sideways motion
+        const grab = vn < 0 ? 0.04 : 0;
+        b.applyImpulse({ x: jx, y: v.y > 0 ? -v.y * m * grab : 0, z: -v.z * m * grab }, true);
         if (depth > NET.maxDepth) {
           // fully stretched: the net is a wall
           b.setTranslation({ x: xn + side * (r - NET.maxDepth), y, z }, true);
@@ -168,6 +174,6 @@ export class Hubs {
   }
 
   /** Balls still inside (for resets). */
-  clear() { this.inside.length = 0; this.netHits.length = 0; this.netSide.fill(0); }
+  clear() { this.inside.length = 0; this.netHits.length = 0; this.netSide[0].fill(0); this.netSide[1].fill(0); }
   get processing() { return this.inside.length; }
 }

@@ -83,6 +83,20 @@ export class Engine {
       const c = this.world.createCollider(desc);
       this.surfaceOf.set(c.handle, s.kind);
     }
+    this.addTrenchArms();
+  }
+
+  /**
+   * The four TRENCH arms as solid steel boxes, matched to the field mesh (underside 0.565 m, the
+   * manual's 22.25 in; 0.10 m deep bar at x = ±3.63, spanning the lane from the support to the
+   * guardrail). A thin triangle-mesh bar hit edge-on by a robot can resolve the overlap the wrong
+   * way (pushing the robot up into a wheelie); a solid box always pushes it straight back.
+   */
+  addTrenchArms() {
+    const R = this.R;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      this.fixed(R.ColliderDesc.cuboid(0.065, 0.049, 0.63).setTranslation(sx * 3.63, 0.6155, sz * 3.405), 'steel');
+    }
   }
 
   /** A fixed collider with the field's material rules (used for the HUB). */

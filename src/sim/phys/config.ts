@@ -118,7 +118,7 @@ export const INDEXER = {
 export const SHOOTER = {
   wheelRadius: 0.0508,           // 4 in flywheel. EDIT
   /** flywheel + shaft + motor rotor inertia (kg·m²). EDIT */
-  inertia: 0.0016,
+  inertia: 0.004,
   gear: 1,
   statorLimit: 60,
   /** a ball between a wheel (surface speed u) and a fixed hood leaves at u/2 with backspin u/(2r);
@@ -148,4 +148,6 @@ export const TURRET = {
 export const NET = {
   /** spring-damper barrier (per ball): stiff enough to stop a 20 m/s ball within ~0.2 m, damped near critical */
   k: 600, c: 21, maxDepth: 0.3,
+  /** fraction of the stiffness left while the net springs back (hysteresis). EDIT: film a net catch */
+  unload: 0.08,
 };
