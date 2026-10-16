@@ -28,3 +28,4 @@ NEXT on resume:
 4. Update scripts/verify.mjs for the new sim UI (old selectors .sim-view/.sim-mode are gone); delete or update scripts/soak.ts, simtrace, simtest, drivetest (they import removed modules).
 5. Vitest suite for §3.7, plus the Trench/penetration/net/determinism tests. Then merge to main once green.
 6. Remove tests/phys/debug.test.ts and world-quick.test.ts or turn them into real tests.
+- 23:15 simlook finished: the new sim loads and runs in Chromium with no console errors; screenshots in shots/sim-look/ (driver, follow, overhead). Review them on resume.
