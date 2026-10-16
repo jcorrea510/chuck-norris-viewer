@@ -475,7 +475,10 @@ export class Viewer {
     for (const m of this.meshes) {
       if (lod) {
         const g = lod.get(m.name);
-        if (!g) continue;
+        // the bumpers keep full detail: decimating them mangled the "3950" lettering (and they're
+        // what the driver camera looks at)
+        // (the electrical steel's low-poly copy also pokes out through the back bumper)
+        if (!g || (m.material as THREE.Material).userData?.finish === 'fabric' || m.name === 'electricalsteel') continue;
         m.userData.fullGeometry ??= m.geometry;
         m.geometry = g;
       } else if (m.userData.fullGeometry) {

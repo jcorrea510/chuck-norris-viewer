@@ -506,22 +506,22 @@ export class Simulation {
     const pos = new THREE.Vector3(), tgt = new THREE.Vector3();
     let fov = 50;
     const rx = r.x, rz = r.z;
-    const lead = 0.25;
     if (this.view === 'driver') {
       // our drive team, standing behind the alliance wall: fixed yaw down the field; pans and zooms
       // gently to keep the robot in frame
       const far = THREE.MathUtils.clamp((rx + 8.3) / 16.5, 0, 1);
-      pos.set(-9.35, 1.78, THREE.MathUtils.clamp(rz * 0.3, -1.6, 1.6));
+      // driver station 2 (manual: the TOWER sits between stations 2 and 3, so 2 sees past it)
+      pos.set(-8.25, 1.8, 1.25 + THREE.MathUtils.clamp((rz - 1.25) * 0.15, -0.35, 0.35));
       tgt.set(pos.x + 8, THREE.MathUtils.lerp(-0.6, 0.35, far), THREE.MathUtils.clamp(rz * 0.55, -2.6, 2.6));
       // aim between the robot and the middle of the field
-      const toR = Math.atan2(rx + r.vx * lead - pos.x, 1);
-      void toR;
       fov = THREE.MathUtils.lerp(58, 36, far) * (aspect < 1 ? 1.35 : 1);
     } else if (this.view === 'follow') {
       // behind and above, yaw locked to the field (looking at the opponent's wall)
       const back = aspect < 1 ? 4.2 : 3.4, up = aspect < 1 ? 3.2 : 2.5;
-      const cx = rx - back, cz = rz;
-      pos.set(cx, Math.max(up, this.clearHeight(cx, cz)), cz);
+      // never behind our alliance wall: near it, the camera climbs instead of backing through it
+      const cx = Math.max(rx - back, -8.15), cz = rz;
+      const extra = (cx - (rx - back)) * 0.8;
+      pos.set(cx, Math.max(up + extra, this.clearHeight(cx, cz)), cz);
       tgt.set(rx + 1.6, 0.15, rz);
       fov = aspect < 1 ? 62 : 50;
     } else {
