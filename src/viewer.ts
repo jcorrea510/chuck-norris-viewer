@@ -64,9 +64,10 @@ export interface MechNode {
   node: THREE.Object3D;
   role: 'rotate' | 'crank' | 'follower' | 'coupler' | 'swivel';
   axis: THREE.Vector3;
-  /** swivel: outline points relative to the hinge (rest pose) and the last solved angle */
+  /** swivel: outline points relative to the hinge (rest pose), and the hinge angle for each
+   *  mechanism angle (precomputed: table[k] at min + k·step, radians) */
   samples?: THREE.Vector3[];
-  swivelKey?: number;
+  swivelTable?: { min: number; step: number; phi: Float32Array };
   swivelAngle?: number;
   link: THREE.Vector3 | null; // crank pivot → coupler joint (four-bar)
   restQ: THREE.Quaternion;
@@ -362,6 +363,7 @@ export class Viewer {
       const bp = this.parts.partsMatching(['Red Bumper', 'Blue Bumper']);
       if (bp.length) this.bumperBox = this.parts.boxOfParts(bp);
     }
+    for (const m of this.mechanisms.values()) for (const n of m.nodes) if (n.role === 'swivel') n.swivelTable = this.swivelTable(m, n);
 
     this.root.rotation.y = this.frontRotation();
     this.root.updateMatrixWorld(true);
@@ -574,8 +576,8 @@ export class Viewer {
           // rides on the coupler, and swings on its own hinge just enough to clear the bumper
           if (n.link) v.copy(n.link).applyQuaternion(q).sub(n.link); else v.set(0, 0, 0);
           n.node.position.copy(n.restP).add(v);
-          if (n.swivelKey !== angles[i]) { n.swivelKey = angles[i]; n.swivelAngle = this.solveSwivel(n, n.node.position); }
-          n.node.quaternion.copy(n.restQ).multiply(q.setFromAxisAngle(n.axis, n.swivelAngle ?? 0));
+          n.swivelAngle = this.swivelAt(n, angles[i]);
+          n.node.quaternion.copy(n.restQ).multiply(q.setFromAxisAngle(n.axis, n.swivelAngle));
         } else n.node.quaternion.copy(n.restQ).multiply(q);
       }
     });
@@ -583,11 +585,17 @@ export class Viewer {
   }
 
   private bumperBox: THREE.Box3 | null = null;
-  /** Smallest hinge angle that keeps every point of the swivel part out of the bumper. */
-  private solveSwivel(n: MechNode, hinge: THREE.Vector3): number {
+  /**
+   * The swivel's hinge angle across the mechanism's whole travel, solved once at load: for each
+   * mechanism angle (0.5° apart) the smallest hinge angle that keeps every point of the part out of
+   * the bumper, refined to a hundredth of a degree, then wrapped in the tightest envelope that
+   * changes by at most 1.6° per degree of travel. The ramp swings out ahead of the bumper and eases
+   * back, with no steps and no snapping, and sits exactly in its CAD pose when the intake is down.
+   */
+  private swivelTable(m: Mechanism, n: MechNode): { min: number; step: number; phi: Float32Array } | undefined {
     const b = this.bumperBox, pts = n.samples;
-    if (!b || !pts?.length) return 0;
-    const q = new THREE.Quaternion(), p = new THREE.Vector3();
+    if (!b || !pts?.length) return undefined;
+    const q = new THREE.Quaternion(), p = new THREE.Vector3(), hinge = new THREE.Vector3(), v = new THREE.Vector3();
     // in the CAD the ramp just kisses the bumper face; only real interference makes it swing
     const pad = -0.004;
     const overlap = (phi: number) => {
@@ -600,19 +608,39 @@ export class Viewer {
       }
       return worst;
     };
-    if (overlap(0) === 0) return 0;
     // swing the free end forward (away from the robot), whichever sign that is about this axis
     let lowest = pts[0];
     for (const r of pts) if (r.y < lowest.y) lowest = r;
     const fwd = p.copy(lowest).applyQuaternion(q.setFromAxisAngle(n.axis, 0.1)).z > lowest.z ? 1 : -1;
-    let best = 0, bestO = Infinity;
-    for (let k = 1; k <= 75; k++) {
-      const phi = fwd * k * 2 * DEG;
-      const o = overlap(phi);
-      if (o === 0) return phi;
-      if (o < bestO) { bestO = o; best = phi; }
+    const step = 0.5 * DEG, min = m.min * DEG;
+    const count = Math.max(2, Math.round((m.max - m.min) * DEG / step)) + 1;
+    const raw = new Float32Array(count);
+    for (let k = 0; k < count; k++) {
+      const a = min + k * step;
+      if (n.link) v.copy(n.link).applyQuaternion(q.setFromAxisAngle(m.axis, a)).sub(n.link); else v.set(0, 0, 0);
+      hinge.copy(n.restP).add(v);
+      if (overlap(0) === 0) { raw[k] = 0; continue; }
+      let lo = 0, hi = -1;
+      for (let s = 1; s <= 300; s++) { const phi = s * 0.5 * DEG; if (overlap(fwd * phi) === 0) { hi = phi; break; } lo = phi; }
+      if (hi < 0) { raw[k] = lo; continue; }
+      for (let it = 0; it < 6; it++) { const mid = (lo + hi) / 2; if (overlap(fwd * mid) === 0) hi = mid; else lo = mid; }
+      raw[k] = hi;
     }
-    return best;
+    // slope-limited upper envelope (two passes), so the ramp never has to move faster than the intake
+    const slope = 1.6 * 0.5; // per table step
+    const phi = Float32Array.from(raw);
+    for (let k = 1; k < count; k++) phi[k] = Math.max(phi[k], phi[k - 1] - slope * DEG);
+    for (let k = count - 2; k >= 0; k--) phi[k] = Math.max(phi[k], phi[k + 1] - slope * DEG);
+    for (let k = 0; k < count; k++) phi[k] *= fwd;
+    return { min, step, phi };
+  }
+
+  private swivelAt(n: MechNode, angle: number) {
+    const t = n.swivelTable;
+    if (!t) return 0;
+    const f = THREE.MathUtils.clamp((angle - t.min) / t.step, 0, t.phi.length - 1);
+    const k = Math.min(t.phi.length - 2, Math.floor(f));
+    return t.phi[k] + (t.phi[k + 1] - t.phi[k]) * (f - k);
   }
 
   robotBox(): THREE.Box3 {

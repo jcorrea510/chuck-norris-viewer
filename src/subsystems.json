@@ -5,7 +5,7 @@
     "robot.front: which way the robot faces at the start. \"auto\" points the intake at the viewer; or use +x, -x, +z, -z.",
     "match: words from Onshape sub-assembly or part names. Parts that match nothing go to Frame & Structure.",
     "hideWhenFocused: parts hidden while that subsystem is selected (e.g. panels that block the view). frameOn: parts the camera centers on when the subsystem is selected (default: all of them). includeMechanisms: moving parts shown solid with this subsystem even though they belong to another (the brain pan cover with Electrical).",
-    "mechanisms: moving parts (CAD coordinates in meters). \"fourbar\" = parallel four-bar: crank pivot, follower pivot and the crank's far joint. swivel: parts hinged on the four-bar's moving link that swing clear of the bumper (the kicker ramp). ownsParts: false keeps the moving parts in their own subsystem (the brain pan cover stays Frame, its slider shows under Electrical). After changing, run: npm run model"
+    "mechanisms: moving parts (CAD coordinates in meters). \"fourbar\" = parallel four-bar: crank pivot, follower pivot and the crank's far joint; crank / followerLinks / swivel.parts name whole sub-assemblies or parts (anywhere below the mechanism's assembly) that ride that link, and screws, nuts, rivets and belts follow the part they are fastened to. swivel: parts hinged on the four-bar's moving link that swing clear of the bumper (the kicker ramp). ownsParts: false keeps the moving parts in their own subsystem (the brain pan cover stays Frame, its slider shows under Electrical). After changing, run: npm run model"
   ],
   "robot": {
     "name": "Chuck Norris",
@@ -372,14 +372,16 @@
       },
       "crank": [
         "Powered Intake Pivot Bar",
-        "Intake Assembly/1/2\" Hex Hub"
+        "First Hopper Roller",
+        "Second Hopper Roller"
       ],
       "followerLinks": [
         "Intake Pivot Bar with Cutout"
       ],
       "swivel": {
         "parts": [
-          "Kicker Ramp"
+          "Kicker Ramp",
+          "ROUND Spacer 23.5 in"
         ],
         "hingePart": "Intake Secondary Rubber Roller"
       },

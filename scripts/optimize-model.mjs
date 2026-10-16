@@ -69,9 +69,8 @@ function subsystemForPath(names) {
   return fallback.id;
 }
 
-/** Which mechanism (and, for a four-bar, which link) a part rides on. */
-function mechanismFor(names, cadBox) {
-  const lower = names.map((n) => clean(n).toLowerCase());
+/** The mechanism a part belongs to (before deciding which four-bar link it rides on). */
+function mechanismOf(lower, cadBox) {
   for (const m of mechanisms) {
     const p = m.parts ?? {};
     const wi = p.within ? lower.findIndex((n) => n.includes(p.within.toLowerCase())) : 0;
@@ -81,18 +80,78 @@ function mechanismFor(names, cadBox) {
       const { min, max } = p.region;
       if (!(cadBox.lo.every((v, k) => v >= min[k] - 1e-4) && cadBox.hi.every((v, k) => v <= max[k] + 1e-4))) continue;
     }
-    if (m.type !== 'fourbar') return { mech: m, role: 'rotate' };
-    // Parallel four-bar: links rotate about their ground pivots, everything else on the coupler translates.
-    const c = cadBox.lo.map((v, k) => (v + cadBox.hi[k]) / 2);
-    const nearAxis = (pv, r) => Math.hypot(c[1] - pv[1], c[2] - pv[2]) < r; // axis is X
-    const leaf = lower.slice(-2).join(' ');
-    // hinged parts riding on the coupler (the kicker ramp swings clear of the bumper)
-    if ((m.swivel?.parts ?? []).some((x) => leaf.includes(x.toLowerCase()))) return { mech: m, role: 'swivel' };
-    if ((m.crank ?? []).some((x) => leaf.includes(x.toLowerCase())) || nearAxis(m.pivot, 0.045)) return { mech: m, role: 'crank' };
-    if ((m.followerLinks ?? []).some((x) => leaf.includes(x.toLowerCase())) || nearAxis(m.follower, 0.03)) return { mech: m, role: 'follower' };
-    return { mech: m, role: 'coupler' };
+    return { m, wi };
   }
   return null;
+}
+
+/**
+ * Four-bar link from names: crank / follower / swivel names match anywhere below the mechanism's
+ * assembly (so whole sub-assemblies like "First Hopper Roller" ride the crank they are bolted to),
+ * then parts sitting on a ground pivot axis; everything else is on the coupler.
+ */
+function linkByName(m, lower, wi, cadBox) {
+  const c = cadBox.lo.map((v, k) => (v + cadBox.hi[k]) / 2);
+  const nearAxis = (pv, r) => Math.hypot(c[1] - pv[1], c[2] - pv[2]) < r; // axis is X
+  const below = lower.slice(wi + 1);
+  const has = (list) => (list ?? []).some((x) => below.some((n) => n.includes(x.toLowerCase())));
+  // hinged parts riding on the coupler (the kicker ramp and the bars through it swing clear of the bumper)
+  if (has(m.swivel?.parts)) return 'swivel';
+  if (has(m.crank) || nearAxis(m.pivot, 0.045)) return 'crank';
+  if (has(m.followerLinks) || nearAxis(m.follower, 0.03)) return 'follower';
+  return 'coupler';
+}
+
+// Screws, nuts, rivets and belts go with whatever they are fastened to: the link of the structural
+// part their box overlaps most (filled by a first pass over the CAD, see collectLinks).
+const ATTACHED = (leaf) => HARDWARE.test(leaf) || /\bbelt\b/i.test(leaf);
+const linkParts = new Map(); // mech id -> [{ lo, hi, role }]
+function overlap(a, b, grow = 0.001) {
+  let v = 1;
+  for (let k = 0; k < 3; k++) {
+    const d = Math.min(a.hi[k], b.hi[k]) - Math.max(a.lo[k], b.lo[k]) + grow * 2;
+    if (d <= 0) return 0;
+    v *= d;
+  }
+  return v;
+}
+
+/** Which mechanism (and, for a four-bar, which link) a part rides on. */
+function mechanismFor(names, cadBox) {
+  const lower = names.map((n) => clean(n).toLowerCase());
+  const hit = mechanismOf(lower, cadBox);
+  if (!hit) return null;
+  const { m, wi } = hit;
+  if (m.type !== 'fourbar') return { mech: m, role: 'rotate' };
+  if (ATTACHED(lower.slice(-2).join(' '))) {
+    let best = null, bestV = 0;
+    for (const p of linkParts.get(m.id) ?? []) {
+      const v = overlap(cadBox, p);
+      if (v > bestV) { bestV = v; best = p.role; }
+    }
+    if (best) return { mech: m, role: best };
+  }
+  return { mech: m, role: linkByName(m, lower, wi, cadBox) };
+}
+
+/** First pass: the four-bar link of every structural (non-hardware) part, for attaching hardware. */
+function collectLinks(scene) {
+  const visit = (node, names) => {
+    const here = [...names, node.getName()];
+    if (isExcluded(node.getName())) return;
+    const mesh = node.getMesh();
+    if (mesh) {
+      const lower = here.map((n) => clean(n).toLowerCase());
+      const cadBox = cadBoxOf(mesh, node.getWorldMatrix());
+      const hit = mechanismOf(lower, cadBox);
+      if (hit && hit.m.type === 'fourbar' && !ATTACHED(lower.slice(-2).join(' '))) {
+        if (!linkParts.has(hit.m.id)) linkParts.set(hit.m.id, []);
+        linkParts.get(hit.m.id).push({ ...cadBox, role: linkByName(hit.m, lower, hit.wi, cadBox) });
+      }
+    }
+    for (const c of node.listChildren()) visit(c, here);
+  };
+  for (const n of scene.listChildren()) visit(n, []);
 }
 
 // ---------------------------------------------------------------- realistic colors
@@ -231,6 +290,7 @@ async function main() {
     });
   const src = await io.read(input);
   const scene = src.getRoot().getDefaultScene() ?? src.getRoot().listScenes()[0];
+  collectLinks(scene);
 
   // ---- walk: hierarchy, tagging, buckets
   const buckets = new Map(); // `${sub}|${mech}|${finish}` -> Bucket
