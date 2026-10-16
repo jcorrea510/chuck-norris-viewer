@@ -12,7 +12,10 @@ export interface RobotFrame {
   x: number; y: number; z: number; th: number; vx: number; vz: number; speed: number; pitch: number; roll: number;
   p: number[]; prevP: number[]; q: number[]; prevQ: number[];
   intakeAngle: number; rollers: string; ferry: boolean;
-  turrets: { id: string; a: number; fly: number; flyGoal: number }[];
+  /** `a` is the CAD mesh's rotation (rad), `fly`/`flyGoal` rad/s; `aw` is the WPILib azimuth (deg, unwrapped), `hoodDeg` the hood's actual angle, `pulseUs` its servo position, `rps`/`rpsGoal` the flywheel */
+  turrets: { id: string; a: number; fly: number; flyGoal: number; aw: number; hoodDeg: number; pulseUs: number; rps: number; rpsGoal: number }[];
+  /** motor speeds (rps), the turret lock (D-pad down), and the pose estimate's heading (sim yaw, rad) */
+  intakeRollerRps: number; hotdogRps: number; indexerRps: number; turretLocked: boolean; headingEstimate: number;
   modules: { steer: number; wheel: number; current: number; N: number }[];
   battery: number; totalCurrent: number; brownout: boolean; slipping: boolean;
 }

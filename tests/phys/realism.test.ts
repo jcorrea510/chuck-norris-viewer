@@ -4,8 +4,8 @@ import { describe, test, expect } from 'vitest';
 import { makeEngine, makeWorld, driverWorld, input, run, robotPenetration } from './helpers';
 import { Fuel, BS } from '../../src/sim/phys/fuel';
 import { Rng } from '../../src/sim/phys/rng';
-import { STEP, FUEL, SHOOTER } from '../../src/sim/phys/config';
-import { AimTable, exitFor, fly } from '../../src/sim/phys/aim';
+import { STEP, FUEL } from '../../src/sim/phys/config';
+import { exitFor, fly } from '../../src/sim/phys/aim';
 import { HUB } from '../../src/sim/phys/hub';
 import { NO_INPUT, ALLIANCE_LINE } from '../../src/sim/world';
 
@@ -89,7 +89,7 @@ describe('FUEL', () => {
   });
 
   test('Magnus: shooter backspin floats a shot (higher apex; longer carry on a flat shot)', () => {
-    const e = exitFor(450);
+    const e = exitFor(450 / (2 * Math.PI));
     const steep = fly(e.speed, 55 * Math.PI / 180, e.spin, 0.57, 0)!, steep0 = fly(e.speed, 55 * Math.PI / 180, 0, 0.57, 0)!;
     const flat = fly(e.speed, 30 * Math.PI / 180, e.spin, 0.57, 0)!, flat0 = fly(e.speed, 30 * Math.PI / 180, 0, 0.57, 0)!;
     log(`exit ${e.speed.toFixed(1)} m/s, backspin ${(e.spin / (2 * Math.PI)).toFixed(0)} rev/s: 55° apex ${steep.apex.toFixed(2)} vs ${steep0.apex.toFixed(2)} m; 30° range ${flat.d.toFixed(2)} vs ${flat0.d.toFixed(2)} m`);
@@ -379,4 +379,3 @@ describe('determinism and invariants', () => {
   });
 });
 
-void SHOOTER; void AimTable;
