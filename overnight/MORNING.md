@@ -1,6 +1,6 @@
 # Morning report: Chuck Norris simulator
 
-*Updated Fri Oct 16, ~10:05. Status at the bottom.*
+*Updated Fri Oct 16, ~11:10. Status at the bottom: **everything below is live on the site.***
 
 ## 1. What changed (your list)
 
@@ -91,6 +91,9 @@ All 17 are in [DECISIONS.md](DECISIONS.md). The top five:
 - **Robot shoving a ball into a wall:** the engine can squeeze it into the carpet for a moment; a guard pops it back up. Rare, hard to see.
 - **A full-speed hit with the intake up** makes a big wheelie. I believe that's real, but have a driver confirm.
 - **Shots are very accurate from close range** (30/30 at 2.5 m), because the opening is big. Misses come from distance, moving shots, turret not settled and RPM dips. If the real robot misses more, raise the scatter values.
+- **Hub flicker:** I couldn't reproduce the black/gray flicker on this laptop's software renderer, so I fixed the cause the code made clear (coplanar see-through panels re-sorted every frame) and added a frame-diff test that passes. Please glance at the Hub on the iPad.
+- **Firefox:** only smoke-tested (the sim loads, runs in its worker, scores, no errors). The full suite ran in Chromium and WebKit.
+- **Not modeled:** climbing (the Tower is a solid obstacle; its rungs are real colliders) and match-style Hub active/inactive timing (Free Drive and High Score keep both Hubs active, as the spec asked for High Score).
 - **Performance measured only on this laptop** (no iPad tonight): ~1 ms per frame of sim work on the main thread; the physics worker takes 2–6 ms per frame when the robot plows into the big pile, on its own core.
 
 ## 7. Status
@@ -101,4 +104,5 @@ All 17 are in [DECISIONS.md](DECISIONS.md). The top five:
   - **WebKit:** **110/110 pass**: the CAD regression (subsystem focus, part taps, double-tap hide, explode, mechanisms, brain pan, search, settings) at three iPad sizes, plus the simulation suite. That suite covers touch driving with multitouch shooting, intake toggle, ferry, cameras, the settings sheet, a full High Score round, settings surviving a reload, flicker, 40 s of input fuzzing, layout at all sizes, and no console errors.
   - **Chromium:** the CAD regression passes at all three iPad sizes (77 checks), and on the final build the simulation suite passes **44/44**.
 - **Branch `overnight`:** pushed.
-- **`main` / the site:** see the last LOG.md entry. https://jcorrea510.github.io/chuck-norris-viewer/
+- **`main`:** fast-forwarded to the tested build and **deployed** (GitHub Actions run 38915279646 succeeded, 10:23). I smoke-tested the live site: the sim loads, physics runs in its worker, it scores, no console errors. https://jcorrea510.github.io/chuck-norris-viewer/
+- Open copies of the app on iPads update themselves within about a minute of being idle (the existing auto-update).
