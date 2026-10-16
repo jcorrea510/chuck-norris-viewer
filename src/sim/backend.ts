@@ -43,7 +43,10 @@ export interface Backend {
   dispose(): void;
 }
 
-const NO_INPUT: DriverInput = { mx: 0, mz: 0, turn: 0, shoot: false, intake: false, eject: false, lock: false, slow: false, toggleArm: false, toggleIntake: false, handBack: false };
+const NO_INPUT: DriverInput = { mx: 0, mz: 0, turn: 0, intake: false, shoot: false, unjam: false, reverseIntake: false, faceHub: false, retract: false, resetHeading: false, turretLock: false, handBack: false };
+const PRESSES = ['retract', 'resetHeading', 'turretLock', 'handBack'] as const;
+type Presses = Record<(typeof PRESSES)[number], boolean>;
+const NO_PRESS = (): Presses => ({ retract: false, resetHeading: false, turretLock: false, handBack: false });
 
 export class WorkerBackend implements Backend {
   frame: Frame | null = null;
@@ -51,7 +54,7 @@ export class WorkerBackend implements Backend {
   private busy = false;
   private dt = 0;
   private input: DriverInput = NO_INPUT;
-  private pendingToggles = { toggleArm: false, toggleIntake: false, handBack: false };
+  private pendingToggles: Presses = NO_PRESS();
   private debugWanted = false;
   readonly ready: Promise<void>;
 
@@ -69,16 +72,14 @@ export class WorkerBackend implements Backend {
   tick(dt: number, input: DriverInput, debug = false) {
     this.dt += dt;
     // a press must never be lost between worker replies
-    this.pendingToggles.toggleArm ||= input.toggleArm;
-    this.pendingToggles.toggleIntake ||= input.toggleIntake;
-    this.pendingToggles.handBack ||= input.handBack;
+    for (const k of PRESSES) this.pendingToggles[k] ||= input[k];
     this.input = input;
     this.debugWanted = debug;
     if (this.busy) return;
     this.busy = true;
     this.worker.postMessage({ tick: { dt: this.dt, input: { ...this.input, ...this.pendingToggles }, debug: this.debugWanted } });
     this.dt = 0;
-    this.pendingToggles = { toggleArm: false, toggleIntake: false, handBack: false };
+    this.pendingToggles = NO_PRESS();
   }
   setMode(mode: SimMode) { this.worker.postMessage({ setMode: mode }); }
   resumeAI() { this.worker.postMessage({ resumeAI: true }); }

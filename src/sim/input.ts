@@ -213,4 +213,4 @@ export class DriverControls {
 }
 
 /** No driver input (also exported by world.ts; here so the renderer needn't load the physics). */
-export const NO_INPUT = { mx: 0, mz: 0, turn: 0, shoot: false, intake: false, eject: false, lock: false, slow: false, toggleArm: false, toggleIntake: false, handBack: false };
+export const NO_INPUT = { mx: 0, mz: 0, turn: 0, intake: false, shoot: false, unjam: false, reverseIntake: false, faceHub: false, retract: false, resetHeading: false, turretLock: false, handBack: false };

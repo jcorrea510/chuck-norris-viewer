@@ -28,12 +28,12 @@ test(`soak: ${SECONDS} s of random driving`, async () => {
       if (roll < 0.12) inp = NO_INPUT;
       else {
         const a = rng.range(0, Math.PI * 2), m = rng.range(0.2, 1);
-        inp = { ...NO_INPUT, mx: Math.cos(a) * m, mz: Math.sin(a) * m, turn: rng.next() < 0.4 ? rng.range(-1, 1) : 0, shoot: rng.next() < 0.35, toggleIntake: rng.next() < 0.15, toggleArm: rng.next() < 0.05, lock: rng.next() < 0.05 };
+        inp = { ...NO_INPUT, mx: Math.cos(a) * m, mz: Math.sin(a) * m, turn: rng.next() < 0.4 ? rng.range(-1, 1) : 0, shoot: rng.next() < 0.35, intake: rng.next() < 0.5, retract: rng.next() < 0.05, unjam: rng.next() < 0.03, faceHub: rng.next() < 0.1, turretLock: rng.next() < 0.02 };
       }
       if (roll > 0.97) { inp = NO_INPUT; until = t + 18; }  // long enough for the robot to drive itself
     }
     const s0 = performance.now();
-    w.step(k === 0 || t < until - 1 / STEP_HZ ? { ...inp, toggleIntake: false, toggleArm: false } : inp);
+    w.step(k === 0 || t < until - 1 / STEP_HZ ? { ...inp, retract: false, turretLock: false } : inp);
     worstStep = Math.max(worstStep, performance.now() - s0);
     // invariants, every step
     if (!Number.isFinite(r.x + r.y + r.z + r.vx + r.vz + r.th)) problems.push(`robot NaN at ${t.toFixed(2)}`);

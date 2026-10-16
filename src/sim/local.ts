@@ -1,6 +1,6 @@
 // The physics on this thread: the fixed-step accumulator shared with the worker, and the backend
 // tests use when they step the simulation themselves (?physics=main).
-import { SimWorld, NO_INPUT, type DriverInput, type SimMode } from './world';
+import { SimWorld, NO_INPUT, PRESSES, type DriverInput, type SimMode } from './world';
 import { STEP } from './phys/config';
 import type { Backend, Frame } from './backend';
 
@@ -52,7 +52,7 @@ export class Stepper {
     let steps = 0, phys = 0;
     while (this.acc >= STEP && steps < 12) {
       this.acc -= STEP;
-      w.step(steps === 0 ? input : { ...input, toggleArm: false, toggleIntake: false, handBack: false });
+      w.step(steps === 0 ? input : { ...input, ...Object.fromEntries(PRESSES.map((k) => [k, false])) });
       phys += w.stepMs;
       steps++;
     }

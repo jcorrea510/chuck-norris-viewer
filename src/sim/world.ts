@@ -22,16 +22,32 @@ export type SimMode = 'free' | 'highscore';
 export type Control = 'ai' | 'driver';
 export type HsPhase = 'countdown' | 'play' | 'post' | 'results';
 
-/** One frame of driver input, already in the field frame (+x = toward the opponent's wall). */
+/**
+ * One frame of driver input, already in the field frame (+x = toward the opponent's wall).
+ * The bindings are the team's driver controller (Rebuilt26 DefaultModeBindings.java); the sticks
+ * arrive raw (no deadband or curve): the robot code shapes them (DriveCommands.joystickDrive).
+ */
 export interface DriverInput {
+  /** left stick, field frame, length ≤ 1, raw */
   mx: number; mz: number;
-  /** turn rate −1…1 (positive = clockwise seen from above) */
+  /** right stick X, −1…1, raw (positive = clockwise seen from above) */
   turn: number;
-  shoot: boolean; intake: boolean; eject: boolean; lock: boolean; slow: boolean;
-  /** pressed this frame */
-  toggleArm: boolean; toggleIntake: boolean; handBack: boolean;
+  /** held: LT — intake down and rollers in (IntakeCommand); letting go stops the rollers, the intake stays down */
+  intake: boolean;
+  /** held: RT — hotdog rollers + indexer feed the turrets (the flywheels are always running) */
+  shoot: boolean;
+  /** held: B — indexer and hotdog run backward (unjam) */
+  unjam: boolean;
+  /** held: Start + B — intake rollers run backward */
+  reverseIntake: boolean;
+  /** held: A — DriveCommands.joystickDriveAtAngle: the back of the robot turns to the HUB */
+  faceHub: boolean;
+  /** pressed this frame: RB stows the intake, Y resets the field-relative heading, D-pad down toggles the turret lock, hand control back to the AI */
+  retract: boolean; resetHeading: boolean; turretLock: boolean; handBack: boolean;
 }
-export const NO_INPUT: DriverInput = { mx: 0, mz: 0, turn: 0, shoot: false, intake: false, eject: false, lock: false, slow: false, toggleArm: false, toggleIntake: false, handBack: false };
+export const NO_INPUT: DriverInput = { mx: 0, mz: 0, turn: 0, intake: false, shoot: false, unjam: false, reverseIntake: false, faceHub: false, retract: false, resetHeading: false, turretLock: false, handBack: false };
+/** the fields of DriverInput that are presses (true for one frame), not held */
+export const PRESSES = ['retract', 'resetHeading', 'turretLock', 'handBack'] as const;
 
 export { STEP };
 export const HANDBACK_SECONDS = 15;
@@ -188,7 +204,7 @@ export class SimWorld {
     this.clock += STEP;
     const r = this.robot;
     if (this.mode === 'free') {
-      const active = Math.hypot(input.mx, input.mz) > 0.08 || Math.abs(input.turn) > 0.08 || input.shoot || input.intake || input.eject || input.lock || input.toggleArm || input.toggleIntake;
+      const active = Math.hypot(input.mx, input.mz) > 0.08 || Math.abs(input.turn) > 0.08 || input.shoot || input.intake || input.unjam || input.reverseIntake || input.faceHub || input.retract || input.resetHeading || input.turretLock;
       if (input.handBack && this.control === 'driver') this.resumeAI();
       else if (active) this.takeOver();
       if (active) this.lastInput = this.clock;
@@ -264,23 +280,15 @@ export class SimWorld {
 
   private applyDriver(input: DriverInput) {
     const r = this.robot;
-    const scale = input.slow ? 0.35 : 1;
-    // deadband like the robot code; the drivetrain's slew limits do the rest
+    // placeholder until the team-code port: deadband, full speed, intake/shoot only
     const m = Math.hypot(input.mx, input.mz);
     const k = m < DRIVE.deadband ? 0 : (m - DRIVE.deadband) / (1 - DRIVE.deadband) / m;
     const t = Math.abs(input.turn) < DRIVE.deadband ? 0 : input.turn;
-    r.manual = { vx: input.mx * k * DRIVE.vmax * scale, vz: input.mz * k * DRIVE.vmax * scale, w: -t * DRIVE.wmax * (input.slow ? 0.4 : 1), lock: input.lock };
-    if (input.toggleArm) r.intakeDown = !r.intakeDown;
-    // intake on: deploy and run the rollers; off: stop and stow (the robot is then 0.728 m tall
-    // and no longer fits under a TRENCH)
-    if (input.toggleIntake) {
-      const on = r.rollers !== 'in';
-      r.rollers = on ? 'in' : 'off';
-      r.intakeDown = on;
-    }
+    r.manual = { vx: input.mx * k * DRIVE.vmax, vz: input.mz * k * DRIVE.vmax, w: -t * DRIVE.wmax };
     if (input.intake) { r.intakeDown = true; r.rollers = 'in'; }
-    if (input.eject) { r.intakeDown = true; r.rollers = 'out'; }
-    else if (r.rollers === 'out') r.rollers = 'off';
+    else if (input.reverseIntake) r.rollers = 'out';
+    else r.rollers = 'off';
+    if (input.retract) r.intakeDown = false;
     r.shoot = input.shoot;
     r.spinUp = input.shoot;
   }

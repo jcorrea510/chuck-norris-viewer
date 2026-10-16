@@ -371,8 +371,8 @@ export class Simulation {
   private driverInput(raw: RawInput): DriverInput {
     return {
       mx: raw.my, mz: raw.mx, turn: raw.turn,
-      shoot: raw.shoot, intake: false, eject: raw.eject, lock: raw.lock, slow: raw.slow,
-      toggleArm: raw.arm, toggleIntake: raw.intakeToggle, handBack: raw.handBack,
+      intake: raw.intakeToggle, shoot: raw.shoot, unjam: false, reverseIntake: raw.eject, faceHub: false,
+      retract: raw.arm, resetHeading: false, turretLock: false, handBack: raw.handBack,
     };
   }
 
