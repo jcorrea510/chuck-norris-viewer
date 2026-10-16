@@ -1,85 +1,15 @@
-// The robot's autonomous brains.
-//   Auto    — the team's autonomous: start in the left TRENCH lane, intake up, facing the middle;
-//             under the trench, drop the intake, sweep the neutral zone, back under the trench and
-//             shoot, then again. It never touches a BUMP.
-//   Endless — keeps finding fuel wherever it is (scored fuel pours out of the HUB into the neutral
-//             zone), collects it and scores it, forever; each crossing picks the trench or the bump
-//             at random. A watchdog notices when it stops making progress and escalates: a new
-//             target, backing out, a fresh spot on the field, and finally a reset.
+// The robot's own brain, for when nobody is driving (Free Drive left alone, the pit display):
+// it keeps finding fuel (scored fuel pours out of the HUBs into the neutral zone), collects it and
+// scores it, forever; each crossing picks the trench or the bump at random. Routes come from the
+// planner (a Web Worker in the browser): while a new route computes, the robot keeps following the
+// old one, so planning never stalls it. A watchdog notices when it stops making progress and
+// escalates: a new target, backing out, a fresh spot on the field, and finally a reset.
 import type { SimWorld } from './world';
-import { CLEAR } from './world';
-import { VMAX } from './robot';
+import { CLEAR, footprintClearance, OUTLINE_DOWN, OUTLINE_UP } from './route';
+import { BS } from './phys/fuel';
+import { DRIVE } from './phys/config';
 
-export const AUTO_SECONDS = 20;
-
-type Step =
-  | { kind: 'drive'; path: [number, number][]; speed: number; heading?: number; stop?: boolean; label: string; shoot?: boolean }
-  | { kind: 'shoot'; max: number; label: string }
-  | { kind: 'intake'; down: boolean };
-
-export class AutoBrain {
-  t = 0;
-  ended = false;
-  phase = 'Autonomous';
-  private steps: Step[];
-  private i = 0;
-  private stepT = 0;
-
-  constructor(private sim: SimWorld) {
-    const start = sim.robot;
-    const sx = start.x, sz = start.z;
-    const tz = -sim.trenchZ;
-    const shootAt: [number, number] = [-5.75, tz + 0.85];
-    this.steps = [
-      { kind: 'drive', label: 'Under the trench', path: [[sx, sz], [-2.45, tz]], speed: 3.4 },
-      { kind: 'intake', down: true },
-      { kind: 'drive', label: 'Into the fuel', path: [[-2.45, tz], [-1.4, -2.35], [-1.0, -1.88]], speed: 2.6 },
-      { kind: 'drive', label: 'Sweeping the neutral zone', path: [[-1.0, -1.88], [1.0, -1.88]], speed: 1.25 },
-      { kind: 'drive', label: 'Back under the trench', path: [[1.0, -1.88], [1.3, -2.6], [0.6, tz + 0.1], [-2.45, tz], [-4.9, tz], shootAt], speed: 3.6, stop: true, shoot: true },
-      { kind: 'shoot', max: 3.5, label: 'Scoring' },
-      { kind: 'drive', label: 'Under the trench', path: [shootAt, [-4.9, tz], [-2.45, tz]], speed: 3.6, shoot: true, heading: Math.PI / 2 },
-      { kind: 'drive', label: 'Into the fuel', path: [[-2.45, tz], [-1.35, -2.35], [-1.0, -1.27]], speed: 2.6 },
-      { kind: 'drive', label: 'Second sweep', path: [[-1.0, -1.27], [1.0, -1.27]], speed: 1.25 },
-      { kind: 'drive', label: 'Back under the trench', path: [[1.0, -1.27], [1.35, -2.3], [0.6, tz + 0.1], [-2.45, tz], [-4.9, tz], shootAt], speed: 3.6, stop: true, shoot: true },
-      { kind: 'shoot', max: 6, label: 'Scoring' },
-    ];
-    sim.robot.rollers = 'in';
-    this.begin();
-  }
-
-  private begin() {
-    const s = this.steps[this.i];
-    this.stepT = 0;
-    if (!s) return;
-    if (s.kind === 'intake') { this.sim.robot.intakeDown = s.down; this.i++; this.begin(); return; }
-    if (s.kind === 'drive') {
-      this.phase = s.label;
-      this.sim.robot.navigate({ path: s.path, speed: s.speed, heading: s.heading ?? 'travel', stopAtEnd: !!s.stop });
-    } else this.phase = s.label;
-  }
-
-  update(dt: number) {
-    const r = this.sim.robot;
-    this.t += dt;
-    if (this.ended) { r.shoot = false; return; }
-    this.stepT += dt;
-    const s = this.steps[this.i];
-    const fire = this.sim.canShoot() && (!s || s.kind === 'shoot' || (s.kind === 'drive' && !!s.shoot));
-    r.shoot = fire;
-    // flywheels come up to speed on the way back so the first shot isn't late
-    r.spinUp = fire || (s?.kind === 'drive' && !!s.shoot);
-    if (this.t >= AUTO_SECONDS) {
-      this.ended = true;
-      r.navigate(null);
-      r.shoot = false;
-      this.phase = 'Auto complete';
-      return;
-    }
-    if (!s) return;
-    if (s.kind === 'drive' && r.done) { this.i++; this.begin(); }
-    else if (s.kind === 'shoot' && (r.stored === 0 || this.stepT > s.max)) { this.i++; this.begin(); }
-  }
-}
+const VMAX = DRIVE.vmax;
 
 export class EndlessBrain {
   phase = 'Endless';
@@ -88,24 +18,22 @@ export class EndlessBrain {
   get targetBall() { return this.mode === 'collect' ? this.target : -1; }
   private replan = 0;
   private progress = { x: 0, z: 0, t: 0, strikes: 0 };
-  /** time of the last real progress (fuel collected or scored) */
   private lastGain = 0;
   private lastLoad = 0;
   private lastScored = 0;
   private escalation = 0;
   private blacklist = new Map<number, number>();
   private clock = 0;
-  /** intake held up until then, to shrink the footprint and get unwedged */
   private stowUntil = 0;
   private blockedTimes: number[] = [];
   private forced = false;
+  /** a plan request is out; its answer is ignored if a newer one was sent */
+  private ticket = 0;
 
   constructor(private sim: SimWorld, private idle = false) {
     this.progress.x = sim.robot.x; this.progress.z = sim.robot.z;
-    if (!idle) this.toScore();
   }
 
-  /** Called when the AI gets the robot back (from a driver, or after a reset). */
   resume() {
     this.idle = false;
     const r = this.sim.robot;
@@ -118,141 +46,129 @@ export class EndlessBrain {
     if (r.load >= 8) this.toScore(); else this.toCollect();
   }
 
+  private available(i: number) {
+    const f = this.sim.fuel;
+    return f.st[i] === BS.FREE && f.pos[i * 3 + 1] < 0.3 && Math.abs(f.pos[i * 3]) < 8.1 && Math.abs(f.pos[i * 3 + 2]) < 3.95;
+  }
+
   update(dt: number) {
     const sim = this.sim, r = sim.robot;
     this.clock += dt;
-    if (this.idle) { this.resume(); }
+    if (this.idle) { this.idle = false; this.resume(); }
     this.replan -= dt;
     r.rollers = 'in';
-    // back down once the robot has room for it (the arm would shove the robot off a wall otherwise)
-    if (!r.intakeDown && this.clock > this.stowUntil && r.drive.clearance(r.x, r.z, r.th, sim.deployedOutline) > 0.03) r.intakeDown = true;
+    if (!r.intakeDown && this.clock > this.stowUntil && footprintClearance(sim.field, r.x, r.z, r.th, OUTLINE_DOWN) > 0.03) r.intakeDown = true;
     else if (this.clock > this.stowUntil + 6) r.intakeDown = true;
     const zone = sim.canShoot();
-    r.shoot = zone;
-    r.spinUp = zone || (this.mode === 'score' && sim.robot.x < -3);
-
-    // progress bookkeeping for the watchdog
-    if (r.load > this.lastLoad || sim.balls.scored > this.lastScored) { this.lastGain = this.clock; this.escalation = 0; }
-    this.lastLoad = r.load; this.lastScored = sim.balls.scored;
+    r.shoot = zone && r.stored > 0;
+    r.spinUp = r.shoot || (this.mode === 'score' && r.x < -3);
+    if (r.load > this.lastLoad || sim.hubs.scoredBy[0] > this.lastScored) { this.lastGain = this.clock; this.escalation = 0; }
+    this.lastLoad = r.load; this.lastScored = sim.hubs.scoredBy[0];
 
     if (this.mode === 'score') {
-      // empty, or a straggler the indexer can't reach yet: go get more (it'll feed on the way)
-      if (r.load === 0 || r.load <= 2 && r.done && zone && r.lastShotT > 3) { this.toCollect(); return; }
+      if (r.load === 0 || (r.load <= 2 && r.done && zone && r.lastShotT > 3)) { this.toCollect(); return; }
       if (r.done) {
         this.phase = 'Scoring';
-        if (!zone) this.toScore();
+        if (!zone && this.replan <= 0) this.toScore();
       }
     } else {
-      const full = r.load >= r.capacity - 1;
-      if (full) { this.toScore(); return; }
+      if (r.load >= r.capacity - 2) { this.toScore(); return; }
       const t = this.target;
-      const gone = t < 0 || !sim.balls.available(t);
+      const gone = t < 0 || !this.available(t);
       if (gone && r.load >= 12) { this.toScore(); return; }
-      if (gone || this.replan <= 0 || r.done) this.pickTarget();
+      if ((gone && this.replan < 1.6) || this.replan <= 0 || r.done && this.replan < 1.8) this.pickTarget();
     }
     this.checkStuck(dt);
+  }
+
+  private go(goals: [number, number][], speed: number, then?: (path: [number, number][], goal: number) => void, prefer?: 'trench' | 'bump') {
+    const sim = this.sim, r = sim.robot;
+    const ticket = ++this.ticket;
+    sim.plan(goals, (res) => {
+      if (ticket !== this.ticket || sim.control !== 'ai') return;
+      if (!res.route) { if (this.target >= 0) this.blacklist.set(this.target, this.clock + 12); this.target = -1; return; }
+      const path = res.route.path;
+      then?.(path, res.goal);
+      r.navigate({ path, speed, heading: 'travel', stopAtEnd: true, segHeading: res.route.segHeading });
+      if (res.route.via) this.phase = `${this.mode === 'score' ? 'To the HUB' : 'Collecting fuel'}, ${res.route.via}`;
+    }, prefer);
   }
 
   private toScore() {
     const sim = this.sim, r = sim.robot;
     this.mode = 'score';
     this.phase = sim.canShoot() ? 'Scoring' : 'Heading to the HUB';
-    // nearest open shooting spot in the alliance zone, 2–4 m from the HUB, with room to turn
-    const h = sim.hub;
-    let best: [number, number] | null = null, bestD = Infinity;
+    const h = sim.hubCenter();
+    const spots: { p: [number, number]; d: number }[] = [];
     for (let x = -7.0; x <= -4.7; x += 0.35) for (let z = -3.3; z <= 3.3; z += 0.35) {
-      const dh = Math.hypot(x - h.cx, z - h.cz);
+      const dh = Math.hypot(x - h.x, z - h.z);
       if (dh < 2.0 || dh > 4.0 || sim.field.distAt(x, z) < 0.86) continue;
-      const d = Math.hypot(x - r.x, z - r.z) + Math.abs(z) * 0.15 + (this.escalation > 1 ? Math.random() * 3 : 0);
-      if (d < bestD) { bestD = d; best = [x, z]; }
+      spots.push({ p: [x, z], d: Math.hypot(x - r.x, z - r.z) + Math.abs(z) * 0.15 + (this.escalation > 1 ? sim.rng.next() * 3 : 0) });
     }
-    const goal = best ?? [-5.6, 0.9];
-    const route = sim.route(goal[0], goal[1]);
-    if (route) {
-      r.navigate({ path: route.path, speed: VMAX * 0.85, heading: 'travel', stopAtEnd: true, segHeading: route.segHeading });
-      if (route.via && !sim.canShoot()) this.phase = `To the HUB, ${route.via}`;
-    }
+    spots.sort((a, b) => a.d - b.d);
+    this.go(spots.length ? spots.slice(0, 4).map((s) => s.p) : [[-5.6, 0.9]], VMAX * 0.85);
     this.replan = 6;
   }
 
-  private toCollect() {
-    this.mode = 'collect';
-    this.target = -1;
-    this.pickTarget();
-  }
+  private toCollect() { this.mode = 'collect'; this.target = -1; this.pickTarget(); }
 
-  /** Best fuel to go get: lots of fuel nearby, not too far, reachable with the intake leading. */
   private pickTarget() {
-    const sim = this.sim, r = sim.robot, b = sim.balls, g = sim.field;
-    this.replan = 2.2;
+    const sim = this.sim, r = sim.robot, f = sim.fuel, g = sim.field;
+    this.replan = 2.4;
     const now = this.clock;
     const cand: { i: number; d: number }[] = [];
-    for (let i = 0; i < b.n; i++) {
-      if (!b.available(i) || sim.isStranded(i)) continue;
-      const x = b.pos[i * 3], z = b.pos[i * 3 + 2];
+    for (let i = 0; i < f.n; i++) {
+      if (!this.available(i)) continue;
+      const x = f.pos[i * 3], z = f.pos[i * 3 + 2];
       if (x > 7.7 || g.distAt(x, z) < 0.07) continue;
       if ((this.blacklist.get(i) ?? 0) > now) continue;
       cand.push({ i, d: Math.hypot(x - r.x, z - r.z) });
     }
     if (!cand.length) {
-      // nothing left out there: wait by the outpost, where the human player rolls fuel back in
       this.phase = 'Waiting for fuel';
       if (r.load > 0) { this.toScore(); return; }
-      if (r.done && Math.hypot(r.x + 6.4, r.z - 2.2) > 0.5) {
-        const route = sim.route(-6.4, 2.2);
-        if (route) r.navigate({ path: route.path, speed: 2.5, heading: 'travel', stopAtEnd: true, segHeading: route.segHeading });
-      }
+      if (r.done && Math.hypot(r.x + 6.4, r.z - 2.2) > 0.5) this.go([[-6.4, 2.2]], 2.5);
       return;
     }
     cand.sort((p, q) => p.d - q.d);
     const top = cand.slice(0, 90);
     let best = top[0], bestScore = -Infinity;
     for (const c of top) {
-      const x = b.pos[c.i * 3], z = b.pos[c.i * 3 + 2];
+      const x = f.pos[c.i * 3], z = f.pos[c.i * 3 + 2];
       let dens = 0;
-      for (const o of top) { const dx = b.pos[o.i * 3] - x, dz = b.pos[o.i * 3 + 2] - z; if (dx * dx + dz * dz < 0.36) dens++; }
-      const score = Math.pow(dens, 0.8) / (1 + c.d / 2.0) * (this.escalation > 1 ? 0.5 + Math.random() : 1);
+      for (const o of top) { const dx = f.pos[o.i * 3] - x, dz = f.pos[o.i * 3 + 2] - z; if (dx * dx + dz * dz < 0.36) dens++; }
+      const score = Math.pow(dens, 0.8) / (1 + c.d / 2.0) * (this.escalation > 1 ? 0.5 + sim.rng.next() : 1);
       if (score > bestScore) { bestScore = score; best = c; }
     }
     this.target = best.i;
-    this.phase = 'Collecting fuel';
-    const bx = b.pos[best.i * 3], bz = b.pos[best.i * 3 + 2];
-    // approach with the intake leading; drive straight at walls when fuel is against one
+    if (!this.phase.startsWith('Collecting')) this.phase = 'Collecting fuel';
+    const bx = f.pos[best.i * 3], bz = f.pos[best.i * 3 + 2];
     let dx = bx - r.x, dz = bz - r.z;
     const dl = Math.hypot(dx, dz) || 1;
     dx /= dl; dz /= dl;
-    if (g.distAt(bx, bz) < 0.6) {
-      const [ax, az] = g.awayFromWalls(bx, bz);
-      if (ax || az) { dx = -ax; dz = -az; }
-    }
+    if (g.distAt(bx, bz) < 0.6) { const [ax, az] = g.awayFromWalls(bx, bz); if (ax || az) { dx = -ax; dz = -az; } }
+    // approach points with the intake leading, best first
+    const goals: [number, number][] = [], dirs: [number, number][] = [];
     for (const rot of [0, 0.5, -0.5, 1, -1, 1.6, -1.6]) {
       const c = Math.cos(rot), s = Math.sin(rot);
       const ux = dx * c - dz * s, uz = dx * s + dz * c;
       const ax = bx - ux * 0.95, az = bz - uz * 0.95;
       if (g.distAt(ax, az) < CLEAR) continue;
-      const route = sim.route(ax, az);
-      if (!route) continue;
-      const path = route.path;
-      this.phase = route.via ? `Collecting fuel, ${route.via}` : 'Collecting fuel';
+      goals.push([ax, az]); dirs.push([ux, uz]);
+    }
+    if (!goals.length) { this.blacklist.set(best.i, now + 12); this.target = -1; return; }
+    this.go(goals, 3.4, (path, k) => {
       // sweep through the fuel, but only as far as the whole robot (intake out) fits
+      const [ux, uz] = dirs[k], [ax, az] = goals[k];
       const th = Math.atan2(ux, uz);
-      const fits = (k: number) => sim.robot.drive.clearance(bx + ux * k, bz + uz * k, th, sim.deployedOutline) > 0.02;
+      const fits = (s: number) => footprintClearance(g, bx + ux * s, bz + uz * s, th, OUTLINE_DOWN) > 0.02;
       let run = 0.25;
       while (run < 1.0 && fits(run + 0.1) && g.lineFree(ax, az, bx + ux * (run + 0.1), bz + uz * (run + 0.1), 0.43)) run += 0.1;
       while (run > -0.62 && !fits(run)) run -= 0.06;
       path.push([bx + ux * run, bz + uz * run]);
-      r.navigate({ path, speed: 3.6, heading: 'travel', stopAtEnd: true, segHeading: route.segHeading });
-      return;
-    }
-    this.blacklist.set(best.i, now + 12);
-    this.target = -1;
+    });
   }
 
-  /**
-   * Watchdog. Every 1.2 s: did it move? If not, try something else; twice in a row, back out into
-   * open space. Separately, if nothing has been collected or scored for a long time, escalate: a
-   * different part of the field, then a reset of the robot (it never sits stuck in the pit).
-   */
   private checkStuck(dt: number) {
     const sim = this.sim, r = sim.robot, p = this.progress;
     const quiet = this.clock - this.lastGain;
@@ -261,16 +177,13 @@ export class EndlessBrain {
       this.escalation++;
       this.lastGain = this.clock;
       if (this.escalation >= 4) { sim.respawn(); this.escalation = 0; return; }
-      // somewhere else entirely
       this.blacklist.clear();
       if (this.target >= 0) this.blacklist.set(this.target, this.clock + 30);
       const spots: [number, number][] = [[-6, 2], [-6, -2], [-1.5, 0], [0, 2.2], [0, -2.2], [1.8, 0.8]];
-      const [gx, gz] = spots[Math.floor(Math.random() * spots.length)];
-      const route = sim.route(gx, gz);
-      if (route) { r.navigate({ path: route.path, speed: 3, heading: 'travel', stopAtEnd: true, segHeading: route.segHeading }); this.mode = 'collect'; this.target = -1; this.replan = 4; }
+      this.mode = 'collect'; this.target = -1; this.replan = 4;
+      this.go([spots[Math.floor(sim.rng.next() * spots.length)]], 3);
       return;
     }
-    // orders that keep ending against an obstacle count as being stuck, however much it jiggles
     if (r.blocked) {
       r.blocked = false;
       this.blockedTimes = this.blockedTimes.filter((t) => this.clock - t < 8);
@@ -288,17 +201,16 @@ export class EndlessBrain {
     p.strikes++;
     if (this.target >= 0) this.blacklist.set(this.target, this.clock + 10);
     if (p.strikes >= 2) {
-      // wedged: raise the intake (the robot gets 22 cm shorter), back out toward whichever direction
-      // opens up the most room and straighten up; it comes back down once there's space
       let best: [number, number] = [-Math.sin(r.th), -Math.cos(r.th)], bestC = -Infinity;
       for (let k = 0; k < 16; k++) {
         const a = (k / 16) * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
-        const c = Math.min(r.clearance(r.x + dx * 0.3, r.z + dz * 0.3, r.th), r.clearance(r.x + dx * 0.7, r.z + dz * 0.7, r.th));
+        const c = Math.min(footprintClearance(sim.field, r.x + dx * 0.3, r.z + dz * 0.3, r.th, OUTLINE_UP), footprintClearance(sim.field, r.x + dx * 0.7, r.z + dz * 0.7, r.th, OUTLINE_UP));
         if (c > bestC) { bestC = c; best = [dx, dz]; }
       }
       if (r.load <= 32) { r.intakeDown = false; this.stowUntil = this.clock + 2.5; }
       const step = p.strikes >= 4 ? 1.2 : 0.7;
-      r.navigate({ path: [[r.x, r.z], [r.x + best[0] * step, r.z + best[1] * step]], speed: 1.6, heading: r.th + (p.strikes >= 4 ? (Math.random() - 0.5) * 1.5 : 0), stopAtEnd: true });
+      this.ticket++;
+      r.navigate({ path: [[r.x, r.z], [r.x + best[0] * step, r.z + best[1] * step]], speed: 1.6, heading: r.th + (p.strikes >= 4 ? (sim.rng.next() - 0.5) * 1.5 : 0), stopAtEnd: true });
       if (p.strikes >= 6) p.strikes = 0;
       return;
     }

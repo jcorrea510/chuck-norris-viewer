@@ -1,372 +1,368 @@
-// The simulation itself, with no rendering: the field, the fuel, Chuck Norris, whoever is driving
-// (the autonomous brains or a person), and the field crew. index.ts draws it; scripts/soak.ts runs
-// it for hours of simulated time in Node to prove it never gets stuck.
-//   Auto    — the team's autonomous (20 s), scripted from the real routine.
-//   Endless — keeps collecting and scoring forever. Touch any control and you drive; 15 s after you
-//             let go the robot picks up where you left it.
+// The simulation without any rendering: Rapier physics (phys/), the field and all 504 FUEL, Chuck
+// Norris, and the game around them.
+//   Free Drive — relaxed: drive whenever you like; left alone, the robot drives itself (Endless).
+//   High Score — 3-2-1, then 60 s from the real pre-match layout; at 0:00 the robot is disabled and
+//                fuel still in the air counts if it scores within 3 s (manual 6.5).
+// Internally we are always the alliance at −x (the red end of the field model). Playing blue is the
+// same match seen from the other end: the field is rotationally symmetric, so the renderer turns
+// the whole scene 180° and swaps the alliance colors.
 import { FieldGrid, type GridData, type HubData } from './field';
-import { Balls, S, R, hubShape, type HubShape } from './balls';
-import { RobotSim } from './robot';
-import { SwerveDrive } from './drive';
-import { DRIVE, HOPPER, FRONT_WALL } from './geometry';
-import { AutoBrain, EndlessBrain, AUTO_SECONDS } from './brain';
+import { Engine, type CollisionIndex } from './phys/engine';
+import { Fuel, BS } from './phys/fuel';
+import { Hubs, HUB } from './phys/hub';
+import { Robot } from './phys/robot';
+import { Rng } from './phys/rng';
+import { STEP, FUEL, DRIVE } from './phys/config';
+import { EndlessBrain } from './brain';
+import { CROSS_X, CROSS_OUT, BUMP_Z, footprintClearance, OUTLINE_DOWN, type Crossing, type PlanJob, type PlanResult } from './route';
+import { InlinePlanner, type Planner } from './planner';
 
 export interface FieldData { fuelRadius: number; hubs: HubData[]; fuel: number[][]; grid: GridData }
-export type SimMode = 'auto' | 'endless';
+export type SimMode = 'free' | 'highscore';
 export type Control = 'ai' | 'driver';
+export type HsPhase = 'countdown' | 'play' | 'post' | 'results';
 
-/** One frame of driver input, already turned into the field frame by whoever reads the controls. */
+/** One frame of driver input, already in the field frame (+x = toward the opponent's wall). */
 export interface DriverInput {
-  /** desired travel, field frame, each −1…1 (length ≤ 1) */
   mx: number; mz: number;
   /** turn rate −1…1 (positive = clockwise seen from above) */
   turn: number;
   shoot: boolean; intake: boolean; eject: boolean; lock: boolean; slow: boolean;
   /** pressed this frame */
-  toggleArm: boolean; handBack: boolean;
+  toggleArm: boolean; toggleIntake: boolean; handBack: boolean;
 }
-export const NO_INPUT: DriverInput = { mx: 0, mz: 0, turn: 0, shoot: false, intake: false, eject: false, lock: false, slow: false, toggleArm: false, handBack: false };
+export const NO_INPUT: DriverInput = { mx: 0, mz: 0, turn: 0, shoot: false, intake: false, eject: false, lock: false, slow: false, toggleArm: false, toggleIntake: false, handBack: false };
 
-export const STEP = 1 / 120;
+export { STEP };
 export const HANDBACK_SECONDS = 15;
-export const ALLIANCE_LINE = -4.24;       // red alliance zone is x < this
-const SHOOT_X = -4.45;                    // robot center must be this deep for the AI to score
-export const CLEAR = 0.5;                 // planning clearance (robot half-diagonal with margin)
-// Each alliance's BUMPs and TRENCHes sit on one line across the field (x = ±CROSS_X). A route
-// across it enters at CROSS_X ∓ CROSS_OUT and leaves on the other side.
-export const CROSS_X = 3.62;
-const CROSS_OUT = 1.2;
-const BUMP_Z = 1.5;
-// the red OUTPOST: its human player rolls fuel back onto the field through the chute
+export const ALLIANCE_LINE = -4.24;       // our ALLIANCE ZONE is x < this (158.6 in from our wall)
+export const HS_SECONDS = 60;
+export const HS_COUNTDOWN = 3;
+export const HS_ASSESS = 3;
 const CHUTE = { x: -7.95, y: 0.55, z: 3.25 };
 
+export interface HsResult { score: number; shots: number; accuracy: number; bestRate: number; best: number; newBest: boolean }
 export interface SimStatus {
-  mode: SimMode; phase: string; scored: number; stored: number; capacity: number;
-  time: number | null; bps: number; ended: boolean; loading: boolean;
-  control: Control; resumeIn: number | null; outOfRange: boolean; intakeDown: boolean;
+  mode: SimMode; scored: number; rate: number; shooting: boolean; ferry: boolean; outOfRange: boolean;
+  control: Control; resumeIn: number | null; intakeDown: boolean; rollers: boolean; stored: number; capacity: number;
+  hs: { phase: HsPhase; t: number; result: HsResult | null } | null;
+  loading: boolean;
 }
 
 export class SimWorld {
+  readonly engine: Engine;
   readonly field: FieldGrid;
-  readonly hub: HubShape;
-  readonly hubTarget: number[];
-  readonly balls: Balls;
-  readonly robot: RobotSim;
-  brain: AutoBrain | EndlessBrain;
-  mode: SimMode = 'auto';
+  readonly fuel: Fuel;
+  readonly hubs: Hubs;
+  readonly robot: Robot;
+  readonly rng: Rng;
+  planner: Planner;
+  brain: EndlessBrain;
+  mode: SimMode = 'free';
   clock = 0;
   control: Control = 'ai';
   private lastInput = -Infinity;
-  /** Trench lane center (|z|), measured from the field grid. */
   trenchZ = 3.38;
   private crossMemo = new Map<number, { kind: 'trench' | 'bump'; z: number; t: number; from: number }>();
-  private scoreTimes: number[] = [];
+  private shotTimes: number[] = [];
   private chuteClock = 0;
-  private sweepIndex = 0;
-  private stranded = new Float32Array(0);
-  readonly deployedOutline = SwerveDrive.outlineFor(HOPPER.hx, FRONT_WALL.z + 0.005);
-  /** the renderer answers whether a point is on screen (fuel is only tidied away off camera) */
+  /** staged layout: index → start position, and which balls start parked or preloaded */
+  private starts: number[][];
+  private preloadIdx: number[] = [];
+  // High Score
+  hsPhase: HsPhase = 'countdown';
+  hsT = 0;
+  hsScore = 0;
+  hsShots = 0;
+  hsBestRate = 0;
+  hsResult: HsResult | null = null;
+  /** step timing (ms) for the debug overlay */
+  stepMs = 0;
+  /** the renderer answers whether a point is on screen (the field crew only works off camera) */
   isVisible: (x: number, y: number, z: number) => boolean = () => false;
-  /** events for sounds and effects */
   onScore: ((i: number) => void) | null = null;
-  onRespawn: (() => void) | null = null;
   onControl: ((c: Control) => void) | null = null;
+  onRespawn: (() => void) | null = null;
+  onHsPhase: ((p: HsPhase) => void) | null = null;
+  bestStore: { get(): number; set(v: number): void } = { get: () => 0, set: () => {} };
 
-  constructor(private data: FieldData) {
-    const red = [...data.hubs].sort((a, b) => a.center[0] - b.center[0])[0];
+  constructor(private data: FieldData, collision: { bin: ArrayBuffer; index: CollisionIndex }, seed = 1, planner?: Planner) {
+    this.rng = new Rng(seed);
+    this.engine = new Engine();
+    this.engine.addField(collision.bin, collision.index);
     this.field = new FieldGrid(data.grid, data.hubs);
-    this.hub = hubShape(red);
-    // aim a little past the center of the funnel so near-misses still roll in
-    this.hubTarget = [red.center[0] + 0.05, red.center[1] + 0.02, red.center[2]];
-    this.balls = new Balls(this.field, this.hub, data.fuel);
-    this.stranded = new Float32Array(this.balls.n);
-    this.balls.onScore = (i) => { this.scoreTimes.push(this.clock); this.onScore?.(i); };
-    this.balls.onLost = (i) => this.park(i);
-    this.robot = new RobotSim(this.field, this.balls, this.hubTarget);
+    this.starts = this.layout();
+    this.fuel = new Fuel(this.engine, this.starts, this.rng, (x, z) => this.field.floor(x, z));
+    this.hubs = new Hubs(this.engine, this.fuel, this.rng);
+    this.hubs.onScore = (i, h) => this.hubScored(i, h);
+    this.robot = new Robot(this.engine, this.fuel, this.rng, (x, z) => this.field.floor(x, z));
+    this.robot.onShot = () => { this.shotTimes.push(this.clock); if (this.mode === 'highscore' && this.hsPhase === 'play') this.hsShots++; };
+    this.planner = planner ?? new InlinePlanner(this.field);
     // trench lane: the widest free gap between the side wall and the trench supports
     let best = 0;
     for (let z = 2.4; z < 4.05; z += 0.025) {
       const d = Math.min(this.field.distAt(-CROSS_X, -z), this.field.distAt(-CROSS_X - 0.4, -z), this.field.distAt(-CROSS_X + 0.4, -z));
       if (d > best) { best = d; this.trenchZ = z; }
     }
-    this.brain = new AutoBrain(this);
+    this.brain = new EndlessBrain(this);
+    this.setMode('free');
   }
 
+  /**
+   * The real pre-match layout (manual 6.3.4): the field model's 456 staged FUEL (neutral zone,
+   * depots, outpost chutes), our 8 preloads, and the 40 the other five robots would have
+   * preloaded, which the manual stages in the NEUTRAL ZONE instead: 504 in all.
+   */
+  private layout(): number[][] {
+    const r = FUEL.radius;
+    const base = this.data.fuel.map((p) => [p[0], Math.max(p[1], r + 0.002), p[2]]);
+    const extra: number[][] = [];
+    const free = (x: number, z: number) => [...base, ...extra].every((p) => Math.hypot(p[0] - x, p[2] - z) > 2 * r + 0.004 || p[1] > 0.3);
+    const rng = new Rng(77);
+    for (let tries = 0; extra.length < 40 && tries < 20000; tries++) {
+      // the NEUTRAL ZONE staging box: 72 in deep (x) by 206 in wide (z), around the CENTER LINE
+      const x = rng.range(-1.4, 1.4), z = rng.range(-2.7, 2.7);
+      if (free(x, z)) extra.push([x, r + 0.002, z]);
+    }
+    const pre: number[][] = [];
+    for (let k = 0; k < 8; k++) pre.push([-12, r, k * 0.2]);
+    const all = [...base, ...extra, ...pre];
+    this.preloadIdx = Array.from({ length: 8 }, (_, k) => base.length + extra.length + k);
+    return all;
+  }
+
+  /** Resets everything to the pre-match layout. */
   setMode(mode: SimMode) {
     this.mode = mode;
-    this.balls.reset(this.data.fuel);
-    this.scoreTimes = [];
-    this.stranded.fill(0);
-    this.clock = 0;
-    this.crossMemo.clear();
-    this.control = 'ai';
-    this.lastInput = -Infinity;
-    // preload: 8 fuel from the red outpost (staged outside the field)
-    const pre: number[] = [];
-    for (let i = 0; i < this.balls.n && pre.length < 8; i++) if (this.balls.st[i] === S.PARKED && this.balls.pos[i * 3] < -8) pre.push(i);
-    const r = this.robot;
-    if (mode === 'auto') {
-      r.place(ALLIANCE_LINE - 0.445 - 0.03, -this.trenchZ, Math.PI / 2);
-      r.setIntakeNow(false);
-      this.brain = new AutoBrain(this);
-    } else {
-      r.place(-5.6, 1.0, Math.PI / 2);
-      r.setIntakeNow(true);
-      this.brain = new EndlessBrain(this);
+    const f = this.fuel;
+    this.hubs.clear();
+    for (let i = 0; i < f.n; i++) {
+      const p = this.starts[i];
+      if (this.preloadIdx.includes(i)) continue;
+      // outpost chutes and anything staged outside the field wait off the field
+      if (Math.abs(p[0]) > 8.2 || Math.abs(p[2]) > 4.0) f.park(i, p);
+      else { f.place(i, p); f.bodies[i].sleep(); }
     }
-    r.preload(pre);
+    f.syncAll();
+    this.clock = 0;
+    this.shotTimes = [];
+    this.crossMemo.clear();
+    this.control = mode === 'highscore' ? 'driver' : 'ai';
+    this.lastInput = mode === 'highscore' ? 0 : -Infinity;
+    const r = this.robot;
+    r.disabled = false;
+    r.shoot = false; r.spinUp = false; r.rollers = 'off';
+    r.place(-6.1, mode === 'highscore' ? 0 : 1.0, Math.PI / 2);
+    r.setIntakeNow(true);
+    r.preload(this.preloadIdx);
+    this.hubs.scoredBy[0] = this.hubs.scoredBy[1] = 0;
+    this.hsScore = 0; this.hsShots = 0; this.hsBestRate = 0; this.hsResult = null; this.hsT = 0;
+    if (mode === 'highscore') { this.hsPhase = 'countdown'; r.disabled = true; this.onHsPhase?.('countdown'); }
+    this.brain = new EndlessBrain(this, mode === 'highscore');
+    // settle the preloads and the staged fuel
+    for (let k = 0; k < 120; k++) this.physicsStep();
+  }
+
+  get scored() { return this.mode === 'highscore' ? this.hsScore : this.hubs.scoredBy[0]; }
+
+  private hubScored(i: number, hub: number) {
+    if (hub !== 0) return;
+    if (this.mode === 'highscore' && (this.hsPhase === 'play' || this.hsPhase === 'post')) this.hsScore++;
+    this.onScore?.(i);
   }
 
   // ------------------------------------------------------------------ step
-  step(dt: number, input: DriverInput = NO_INPUT) {
-    this.clock += dt;
-    const r = this.robot;
-    const active = Math.hypot(input.mx, input.mz) > 0.08 || Math.abs(input.turn) > 0.08 || input.shoot || input.intake || input.eject || input.lock || input.toggleArm;
-    if (input.handBack && this.control === 'driver') this.resumeAI();
-    else if (active) this.takeOver();
-    if (active) this.lastInput = this.clock;
-    if (this.control === 'driver' && this.clock - this.lastInput > HANDBACK_SECONDS) this.resumeAI();
+  private physicsStep() {
+    this.robot.preStep();
+    this.fuel.preStep();
+    this.hubs.preStep();
+    this.engine.step();
+    this.fuel.postStep((i) => this.lost(i));
+    this.hubs.postStep();
+    this.robot.postStep();
+  }
 
-    if (this.control === 'driver') this.applyDriver(input);
-    else this.brain.update(dt);
-    r.update(dt);
-    this.balls.step(dt, r);
-    if (this.mode === 'endless') { this.humanPlayer(dt); this.sweep(); }
+  step(input: DriverInput = NO_INPUT) {
+    const t0 = performance.now();
+    this.clock += STEP;
+    const r = this.robot;
+    if (this.mode === 'free') {
+      const active = Math.hypot(input.mx, input.mz) > 0.08 || Math.abs(input.turn) > 0.08 || input.shoot || input.intake || input.eject || input.lock || input.toggleArm || input.toggleIntake;
+      if (input.handBack && this.control === 'driver') this.resumeAI();
+      else if (active) this.takeOver();
+      if (active) this.lastInput = this.clock;
+      if (this.control === 'driver' && this.clock - this.lastInput > HANDBACK_SECONDS) this.resumeAI();
+      if (this.control === 'driver') this.applyDriver(input); else this.brain.update(STEP);
+      this.humanPlayer();
+    } else this.highScore(input);
     // a crossing choice lasts until the robot is through it
     for (const [L, m] of this.crossMemo) {
       const across = Math.sign(r.x - L) !== m.from && Math.abs(r.x - L) > CROSS_OUT + 0.3;
       if (across || this.clock - m.t > 20) this.crossMemo.delete(L);
     }
+    this.physicsStep();
     this.guard();
+    this.stepMs = performance.now() - t0;
   }
 
-  /** A person takes the controls (Auto ends early: the robot is theirs, on the same field). */
+  private highScore(input: DriverInput) {
+    const r = this.robot;
+    this.hsT += STEP;
+    if (this.hsPhase === 'countdown') {
+      r.disabled = true;
+      if (this.hsT >= HS_COUNTDOWN) { this.hsPhase = 'play'; this.hsT = 0; r.disabled = false; this.onHsPhase?.('play'); }
+    } else if (this.hsPhase === 'play') {
+      this.applyDriver(input);
+      const rate = this.rate;
+      if (rate > this.hsBestRate) this.hsBestRate = rate;
+      if (this.hsT >= HS_SECONDS) {
+        // end of the match: the robot is disabled; fuel in the air still counts for 3 s
+        this.hsPhase = 'post'; this.hsT = 0;
+        r.disabled = true; r.manual = null; r.shoot = false; r.spinUp = false; r.rollers = 'off';
+        this.onHsPhase?.('post');
+      }
+    } else if (this.hsPhase === 'post') {
+      if (this.hsT >= HS_ASSESS) {
+        this.hsPhase = 'results';
+        const best = this.bestStore.get();
+        const newBest = this.hsScore > best;
+        if (newBest) this.bestStore.set(this.hsScore);
+        this.hsResult = { score: this.hsScore, shots: this.hsShots, accuracy: this.hsShots ? this.hsScore / this.hsShots : 0, bestRate: this.hsBestRate, best: Math.max(best, this.hsScore), newBest };
+        this.onHsPhase?.('results');
+      }
+    }
+  }
+
+  /** Balls leaving the shooter per second, over the last second. */
+  get rate() {
+    while (this.shotTimes.length && this.clock - this.shotTimes[0] > 1) this.shotTimes.shift();
+    return this.shotTimes.length;
+  }
+
   takeOver() {
     if (this.control === 'driver') return;
-    if (this.mode === 'auto') { this.mode = 'endless'; this.brain = new EndlessBrain(this, true); }
     this.control = 'driver';
     const r = this.robot;
     r.navigate(null);
     r.spinUp = false;
+    r.shoot = false;
+    r.rollers = 'off';
     this.onControl?.('driver');
   }
 
   resumeAI() {
-    if (this.control === 'ai') return;
+    if (this.control === 'ai' || this.mode !== 'free') return;
     this.control = 'ai';
     this.robot.manual = null;
     this.robot.shoot = false;
     this.lastInput = -Infinity;
-    if (this.brain instanceof EndlessBrain) this.brain.resume();
+    this.brain.resume();
     this.onControl?.('ai');
   }
 
   private applyDriver(input: DriverInput) {
     const r = this.robot;
     const scale = input.slow ? 0.35 : 1;
-    // the sticks ask for a velocity; the drivetrain delivers what physics allows
-    r.manual = { vx: input.mx * DRIVE.vmax * scale, vz: input.mz * DRIVE.vmax * scale, w: -input.turn * DRIVE.wmax * (input.slow ? 0.4 : 0.75), lock: input.lock };
+    // deadband like the robot code; the drivetrain's slew limits do the rest
+    const m = Math.hypot(input.mx, input.mz);
+    const k = m < DRIVE.deadband ? 0 : (m - DRIVE.deadband) / (1 - DRIVE.deadband) / m;
+    const t = Math.abs(input.turn) < DRIVE.deadband ? 0 : input.turn;
+    r.manual = { vx: input.mx * k * DRIVE.vmax * scale, vz: input.mz * k * DRIVE.vmax * scale, w: -t * DRIVE.wmax * (input.slow ? 0.4 : 1), lock: input.lock };
     if (input.toggleArm) r.intakeDown = !r.intakeDown;
-    if (input.intake && !r.intakeDown) r.intakeDown = true;
-    if (input.eject && !r.intakeDown) r.intakeDown = true;
-    r.rollers = input.eject ? 'out' : input.intake ? 'in' : 'off';
+    if (input.toggleIntake) {
+      const on = r.rollers !== 'in';
+      r.rollers = on ? 'in' : 'off';
+      if (on) r.intakeDown = true;
+    }
+    if (input.intake) { r.intakeDown = true; r.rollers = 'in'; }
+    if (input.eject) { r.intakeDown = true; r.rollers = 'out'; }
+    else if (r.rollers === 'out') r.rollers = 'off';
     r.shoot = input.shoot;
     r.spinUp = input.shoot;
   }
 
-  get resumeIn() { return this.control === 'driver' ? Math.max(0, HANDBACK_SECONDS - (this.clock - this.lastInput)) : null; }
+  get resumeIn() { return this.control === 'driver' && this.mode === 'free' ? Math.max(0, HANDBACK_SECONDS - (this.clock - this.lastInput)) : null; }
 
   // ------------------------------------------------------------------ the field crew
-  /** Parks a ball at the red outpost, for the human player to roll back in. */
-  park(i: number) {
-    const b = this.balls;
-    b.st[i] = S.PARKED;
-    b.vel.fill(0, i * 3, i * 3 + 3);
+  /** A ball that somehow left the field goes to the outpost (the referees put it back in play). */
+  private lost(i: number) {
     let n = 0;
-    for (let k = 0; k < b.n; k++) if (b.st[k] === S.PARKED && b.pos[k * 3] < -8.2 && b.pos[k * 3 + 2] > 2.9) n++;
-    b.pos[i * 3] = -8.4 - (n % 4) * 0.15;
-    b.pos[i * 3 + 1] = 0.82 + Math.floor(n / 16) * 0.15;
-    b.pos[i * 3 + 2] = 3.1 + (Math.floor(n / 4) % 4) * 0.15;
+    for (let k = 0; k < this.fuel.n; k++) if (this.fuel.st[k] === BS.PARKED && this.fuel.pos[k * 3] < -8.2) n++;
+    this.fuel.park(i, [-8.6 - (n % 4) * 0.15, 0.8 + Math.floor(n / 16) * 0.15, 3.1 + (Math.floor(n / 4) % 4) * 0.15]);
   }
 
-  /** Outpost fuel the human player can send through the chute. */
-  private outpostPool(): number[] {
-    const b = this.balls, out: number[] = [];
-    for (let k = 0; k < b.n; k++) if (b.st[k] === S.PARKED && b.pos[k * 3] < -8.2 && b.pos[k * 3 + 2] > 2.9) out.push(k);
-    return out;
-  }
-
-  /** The red human player rolls outpost fuel back in, one every second or so, when it's needed. */
-  private humanPlayer(dt: number) {
-    this.chuteClock -= dt;
+  /** In Free Drive the human player rolls outpost fuel back in through the chute when it's needed. */
+  private humanPlayer() {
+    this.chuteClock -= STEP;
     if (this.chuteClock > 0) return;
     this.chuteClock = 1.3;
-    const pool = this.outpostPool();
-    if (!pool.length) return;
-    const r = this.robot;
-    if (Math.hypot(r.x - CHUTE.x, r.z - CHUTE.z) < 1.4) return;
-    if (this.reachableCount() > 140 && pool.length < 12) return;
-    const i = pool[pool.length - 1];
-    this.balls.launch(i, [CHUTE.x, CHUTE.y, CHUTE.z + (Math.random() - 0.5) * 0.25], [1.5 + Math.random() * 0.9, -0.3, -0.5 - Math.random() * 0.6]);
-    this.stranded[i] = 0;
-  }
-
-  private reachCount = 0;
-  private reachT = -1;
-  reachableCount() {
-    if (this.clock - this.reachT < 3) return this.reachCount;
-    this.reachT = this.clock;
-    let n = 0;
-    for (let i = 0; i < this.balls.n; i++) if (this.balls.available(i) && this.stranded[i] === 0) n++;
-    this.reachCount = n;
-    return n;
-  }
-
-  /**
-   * Fuel wedged where no robot could ever pick it up (in a corner, against a field element) for
-   * a minute is quietly carried back to the outpost by the field crew, off camera, so hours of
-   * Endless never run dry.
-   */
-  private sweep() {
-    const b = this.balls;
-    for (let k = 0; k < 6; k++) {
-      const i = this.sweepIndex = (this.sweepIndex + 1) % b.n;
-      if (b.st[i] !== S.REST) { if (b.st[i] !== S.MOVING) this.stranded[i] = 0; continue; }
-      const x = b.pos[i * 3], y = b.pos[i * 3 + 1], z = b.pos[i * 3 + 2];
-      if (this.reachable(x, z)) { this.stranded[i] = 0; continue; }
-      if (this.stranded[i] === 0) { this.stranded[i] = this.clock; continue; }
-      if (this.clock - this.stranded[i] > 60 && !this.isVisible(x, y, z)) { this.park(i); this.stranded[i] = 0; }
+    const f = this.fuel;
+    let pick = -1, inPlay = 0;
+    for (let k = 0; k < f.n; k++) {
+      if (f.st[k] === BS.PARKED && f.pos[k * 3] < -8.2 && f.pos[k * 3 + 2] > 2.0) pick = k;
+      else if (f.isFree(k) && f.pos[k * 3 + 1] < 0.3) inPlay++;
     }
+    if (pick < 0 || inPlay > 200) return;
+    if (Math.hypot(this.robot.x - CHUTE.x, this.robot.z - CHUTE.z) < 1.4) return;
+    f.launch(pick, [CHUTE.x, CHUTE.y, CHUTE.z + (this.rng.next() - 0.5) * 0.25], [1.5 + this.rng.next() * 0.9, -0.3, -0.5 - this.rng.next() * 0.6], [0, 0, 0]);
   }
-
-  /** Could the robot get its intake roller onto a ball here, from any direction? */
-  reachable(x: number, z: number) {
-    if (Math.abs(x) > 8.27 || Math.abs(z) > 4.03) return false;
-    for (let k = 0; k < 16; k++) {
-      const th = (k / 16) * Math.PI * 2, dx = Math.sin(th), dz = Math.cos(th);
-      // robot center behind the ball, roller touching it
-      const cx = x - dx * 0.71, cz = z - dz * 0.71;
-      if (this.field.clearance(cx, cz) < 0.3) continue;
-      if (this.robot.drive.clearance(cx, cz, th, this.deployedOutline) > 0.01) return true;
-    }
-    return false;
-  }
-  isStranded(i: number) { return this.stranded[i] !== 0; }
 
   /** Last line of defense for a pit display that runs for hours: nothing may ever go non-finite. */
   private guard() {
-    const d = this.robot.drive;
-    if (!Number.isFinite(d.x + d.z + d.th + d.vx + d.vz + d.w) || d.clearance(d.x, d.z, d.th) < -0.25) this.respawn();
+    const r = this.robot;
+    if (!Number.isFinite(r.x + r.y + r.z + r.vx + r.vz) || r.y < -0.3 || r.y > 2 || Math.abs(r.x) > 8.6 || Math.abs(r.z) > 4.4 || Math.abs(r.pitch) > 1.2 || Math.abs(r.roll) > 1.2) this.respawn();
   }
 
-  /** Put the robot back on its feet in the alliance zone (the renderer covers it with a fade). */
   respawn() {
     const r = this.robot;
-    const held: number[] = [];
-    r.forEachHeld((i) => held.push(i));
     r.place(-6.2, 0.9, Math.PI / 2);
     r.setIntakeNow(true);
-    for (const i of held) this.park(i);
-    if (this.brain instanceof EndlessBrain) this.brain.resume();
+    this.brain.resume();
     this.onRespawn?.();
   }
 
-  // ------------------------------------------------------------------ routing
-  /**
-   * Plans to (gx, gz). When the trip crosses an alliance's BUMP/TRENCH line it goes through a trench
-   * lane or over a bump: `prefer` forces one, otherwise each crossing is chosen at random (and kept
-   * until the robot is across, so re-plans don't flip-flop).
-   */
-  route(gx: number, gz: number, prefer?: 'trench' | 'bump'): { path: [number, number][]; via: string; segHeading?: (number | null)[] } | null {
-    const r = this.robot, f = this.field;
-    const waypoints: [number, number][] = [];
-    let via = '';
+  // ------------------------------------------------------------------ routing (for the brain)
+  /** Decides each alliance-line crossing (trench or bump, kept until the robot is through). */
+  crossings(gx: number, gz: number, prefer?: 'trench' | 'bump'): Crossing[] {
+    const r = this.robot, out: Crossing[] = [];
     for (const L of [-CROSS_X, CROSS_X]) {
       if ((r.x - L) * (gx - L) >= 0) continue;
-      const dir = Math.sign(gx - L);
       let memo = this.crossMemo.get(L);
       if (!memo || prefer && memo.kind !== prefer) {
-        const kind = prefer ?? (Math.random() < 0.5 ? 'trench' : 'bump');
+        const kind = prefer ?? (this.rng.next() < 0.5 ? 'trench' : 'bump');
         const lane = kind === 'trench' ? this.trenchZ : BUMP_Z;
         const cost = (z: number) => Math.abs(r.z - z) + Math.abs(gz - z);
         const z = cost(lane) <= cost(-lane) ? lane : -lane;
         memo = { kind, z, t: this.clock, from: Math.sign(r.x - L) };
         this.crossMemo.set(L, memo);
       }
-      // line up in the open first, so the deployed intake never swings into the trench supports
-      waypoints.push([L - dir * (CROSS_OUT + 0.55), memo.z], [L - dir * CROSS_OUT, memo.z], [L + dir * CROSS_OUT, memo.z]);
-      via = memo.kind === 'trench' ? 'under the trench' : 'over the bump';
+      out.push({ L, kind: memo.kind, z: memo.z });
     }
-    if (!waypoints.length) {
-      const path = f.plan(r.x, r.z, gx, gz, CLEAR);
-      return path ? { path, via } : null;
-    }
-    const out: [number, number][] = [];
-    const segHeading: (number | null)[] = [];
-    let sx = r.x, sz = r.z;
-    for (let k = 0; k < waypoints.length; k += 3) {
-      const [pre, entry, exit] = [waypoints[k], waypoints[k + 1], waypoints[k + 2]];
-      const dir = Math.sign(exit[0] - pre[0]);
-      const lane = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-      // already lined up in (or inside) the lane: carry on from here instead of going back
-      const inLane = Math.abs(sz - pre[1]) < 0.4 && (sx - pre[0]) * dir > -0.1;
-      if (inLane) {
-        if (!out.length) out.push([sx, sz]);
-        if ((sx - entry[0]) * dir < -0.05) { out.push(entry); segHeading.push(lane); }
-        out.push(exit); segHeading.push(lane);
-        [sx, sz] = exit;
-        continue;
-      }
-      const leg = f.plan(sx, sz, pre[0], pre[1], CLEAR, 50);
-      if (!leg) return null;
-      out.push(...(out.length ? leg.slice(1) : leg));
-      while (segHeading.length < out.length - 1) segHeading.push(null);
-      // line up with the lane on the approach (intake leading), then drive straight through
-      if (out.length >= 2) segHeading[out.length - 2] = lane;
-      out.push(entry, exit);
-      segHeading.push(lane, lane);
-      [sx, sz] = exit;
-    }
-    const last = f.plan(sx, sz, gx, gz, CLEAR, 50);
-    if (!last) return null;
-    out.push(...last.slice(1));
-    while (segHeading.length < out.length - 1) segHeading.push(null);
-    return { path: out, via, segHeading };
+    return out;
   }
 
-  canShoot() { return this.robot.x < SHOOT_X; }
-
-  /** What the robot is doing for the driver, in a few words. */
-  private driverPhase() {
+  /** Ask the planner (a Web Worker in the browser) for a route to the first reachable goal. */
+  plan(goals: [number, number][], cb: (r: PlanResult) => void, prefer?: 'trench' | 'bump') {
+    if (!goals.length) return;
     const r = this.robot;
-    if (r.shoot) return !r.stored ? 'Shooting · empty' : r.outOfRange ? 'Too far to score' : r.flywheelReady ? 'Shooting' : 'Spinning up';
-    if (r.rollers === 'out') return 'Ejecting';
-    if (r.rollers === 'in') return r.load >= r.capacity ? 'Hopper full' : 'Intaking';
-    if (Math.abs(r.intakeAngle - (r.intakeDown ? 0 : -73)) > 1) return r.intakeDown ? 'Lowering the intake' : r.capacityBlocked ? 'Hopper too full to stow' : 'Raising the intake';
-    return r.speed > 0.3 ? 'Driving' : 'Ready';
+    const job: PlanJob = { sx: r.x, sz: r.z, goals, cross: this.crossings(goals[0][0], goals[0][1], prefer) };
+    this.planner.request(job, cb);
   }
+
+  canShoot() { return this.robot.x < ALLIANCE_LINE - 0.2; }
+  footprint(x: number, z: number, th: number) { return footprintClearance(this.field, x, z, th, OUTLINE_DOWN); }
+  hubCenter() { return { x: -HUB.cx, z: 0 }; }
 
   status(loading = false): SimStatus {
-    const now = this.clock;
-    this.scoreTimes = this.scoreTimes.filter((t) => now - t < 3);
-    const b = this.brain;
-    const driver = this.control === 'driver';
+    const r = this.robot;
     return {
-      mode: this.mode,
-      phase: driver ? this.driverPhase() : b.phase,
-      scored: this.balls.scored,
-      stored: this.robot.load,
-      capacity: this.robot.capacity,
-      time: this.mode === 'auto' && b instanceof AutoBrain ? Math.max(0, AUTO_SECONDS - b.t) : null,
-      bps: this.scoreTimes.length / 3,
-      ended: b instanceof AutoBrain && b.ended,
+      mode: this.mode, scored: this.scored, rate: this.rate, shooting: r.shoot && r.stored > 0, ferry: r.ferry,
+      outOfRange: r.shoot && r.outOfRange, control: this.control, resumeIn: this.resumeIn,
+      intakeDown: r.intakeDown, rollers: r.rollers === 'in', stored: r.stored, capacity: r.capacity,
+      hs: this.mode === 'highscore' ? { phase: this.hsPhase, t: this.hsPhase === 'play' ? Math.max(0, HS_SECONDS - this.hsT) : this.hsPhase === 'countdown' ? Math.max(0, HS_COUNTDOWN - this.hsT) : 0, result: this.hsResult } : null,
       loading,
-      control: this.control,
-      resumeIn: this.resumeIn,
-      outOfRange: driver && this.robot.outOfRange,
-      intakeDown: this.robot.intakeDown,
     };
   }
-}
 
-export { R };
+  dispose() { this.planner.dispose(); this.engine.dispose(); }
+}

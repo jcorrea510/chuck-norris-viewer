@@ -1,0 +1,26 @@
+{
+ "source": "public/field/field-2026.glb (AdvantageScope 2026 FRC Field, BSD-3-Clause)",
+ "surfaces": [
+  {
+   "kind": "hdpe",
+   "vertexOffset": 0,
+   "vertexCount": 899,
+   "indexOffset": 10788,
+   "indexCount": 3609
+  },
+  {
+   "kind": "polycarb",
+   "vertexOffset": 25224,
+   "vertexCount": 900,
+   "indexOffset": 36024,
+   "indexCount": 3975
+  },
+  {
+   "kind": "steel",
+   "vertexOffset": 51924,
+   "vertexCount": 6024,
+   "indexOffset": 124212,
+   "indexCount": 40155
+  }
+ ]
+}
