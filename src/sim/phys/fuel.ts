@@ -55,7 +55,7 @@ export class Fuel {
   /** total rolling-resistance events, etc. for tests */
   awake = 0;
 
-  constructor(private eng: Engine, starts: number[][], rng: Rng, private floor: FloorFn) {
+  constructor(eng: Engine, starts: number[][], rng: Rng, private floor: FloorFn) {
     const R = eng.R, w = eng.world;
     this.n = starts.length;
     this.st = new Uint8Array(this.n);

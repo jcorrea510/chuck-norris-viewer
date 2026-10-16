@@ -14,6 +14,13 @@ export interface Settings {
   pitMode: number;         // seconds of no input before the pit display, 0 = off
   quality: 'battery' | 'balanced' | 'max';
   stats: boolean;
+  /** bumper color shown in the CAD view */
+  bumper: 'red' | 'blue';
+  /** which alliance we play as in the simulation */
+  alliance: 'red' | 'blue';
+  simView: 'driver' | 'follow' | 'overhead';
+  /** robot sounds in the simulation (physically driven; off by default) */
+  simSound: boolean;
 }
 
 export const ACCENTS: Record<Accent, { fill: string; ink: string; name: string }> = {
@@ -30,13 +37,19 @@ export function defaults(robotSpin: number, robotIdle: number): Settings {
     appearance: 'dark', accent: 'maroon', hologram: 1, sound: true, volume: 0.6,
     autoSpin: true, spinSeconds: robotSpin, labels: true, pitMode: robotIdle,
     quality: 'balanced', stats: false,
+    bumper: 'red', alliance: 'red', simView: 'driver', simSound: false,
   };
 }
 
 export function loadSettings(d: Settings): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...d, ...JSON.parse(raw) };
+    if (raw) {
+      const s = { ...d, ...JSON.parse(raw) } as Settings;
+      // views from older versions
+      if (!['driver', 'follow', 'overhead'].includes(s.simView)) s.simView = 'driver';
+      return s;
+    }
   } catch { /* storage unavailable: defaults */ }
   return { ...d };
 }

@@ -3,29 +3,27 @@
 // can be changed on the Controls page and is remembered on this device.
 
 export type Action = 'forward' | 'back' | 'left' | 'right' | 'turnLeft' | 'turnRight' | 'shoot' | 'intake' | 'eject' | 'arm' | 'lock' | 'slow' | 'camera' | 'handBack';
-export type DriveFrame = 'camera' | 'field' | 'robot';
 
 export const ACTIONS: { id: Action; label: string; hint: string; pad: boolean }[] = [
-  { id: 'forward', label: 'Drive forward', hint: 'Away from you', pad: false },
-  { id: 'back', label: 'Drive back', hint: 'Toward you', pad: false },
+  { id: 'forward', label: 'Drive forward', hint: 'Toward the opponent’s wall (up on screen)', pad: false },
+  { id: 'back', label: 'Drive back', hint: 'Toward our wall', pad: false },
   { id: 'left', label: 'Strafe left', hint: '', pad: false },
   { id: 'right', label: 'Strafe right', hint: '', pad: false },
   { id: 'turnLeft', label: 'Turn left', hint: 'Counter-clockwise', pad: false },
   { id: 'turnRight', label: 'Turn right', hint: 'Clockwise', pad: false },
   { id: 'shoot', label: 'Shoot', hint: 'Hold: turrets aim and fire', pad: true },
-  { id: 'intake', label: 'Intake', hint: 'Hold: drops the intake, runs the rollers', pad: true },
+  { id: 'intake', label: 'Intake on / off', hint: 'On: drops the intake and runs the rollers. Off: stops and stows it', pad: true },
   { id: 'eject', label: 'Eject', hint: 'Hold: rollers spit fuel out the front', pad: true },
   { id: 'arm', label: 'Intake up / down', hint: 'Raise or lower the four-bar', pad: true },
   { id: 'lock', label: 'X-lock', hint: 'Hold: wheels lock in an X', pad: true },
   { id: 'slow', label: 'Precision', hint: 'Hold: slow and fine', pad: true },
-  { id: 'camera', label: 'Next camera', hint: 'TV · Chase · Field · Driver', pad: true },
+  { id: 'camera', label: 'Next camera', hint: 'Driver · Follow · Overhead', pad: true },
   { id: 'handBack', label: 'Give control back', hint: 'The robot drives itself again', pad: true },
 ];
 
 export interface Bindings {
   keys: Record<Action, string[]>;
   pad: Partial<Record<Action, number>>;
-  frame: DriveFrame;
 }
 
 export const DEFAULT_BINDINGS: Bindings = {
@@ -37,16 +35,15 @@ export const DEFAULT_BINDINGS: Bindings = {
   },
   // standard gamepad layout: 0 A/✕, 1 B/○, 2 X/□, 3 Y/△, 4 LB, 5 RB, 6 LT, 7 RT, 8 View, 9 Menu, 12-15 d-pad
   pad: { shoot: 7, intake: 6, arm: 0, eject: 1, lock: 2, camera: 3, slow: 4, handBack: 9 },
-  frame: 'camera',
 };
 
-const STORE = 'chuck-norris-controls-v1';
+const STORE = 'chuck-norris-controls-v2';
 export function loadBindings(): Bindings {
   try {
     const raw = localStorage.getItem(STORE);
     if (raw) {
       const b = JSON.parse(raw) as Partial<Bindings>;
-      return { keys: { ...DEFAULT_BINDINGS.keys, ...b.keys }, pad: { ...DEFAULT_BINDINGS.pad, ...b.pad }, frame: b.frame ?? DEFAULT_BINDINGS.frame };
+      return { keys: { ...DEFAULT_BINDINGS.keys, ...b.keys }, pad: { ...DEFAULT_BINDINGS.pad, ...b.pad } };
     }
   } catch { /* storage unavailable */ }
   return structuredClone(DEFAULT_BINDINGS);
@@ -70,15 +67,15 @@ export interface RawInput {
   /** stick, screen-relative: x right, y away from you; length ≤ 1 */
   mx: number; my: number;
   turn: number;
-  shoot: boolean; intake: boolean; eject: boolean; lock: boolean; slow: boolean;
-  arm: boolean; camera: boolean; handBack: boolean;   // pressed this frame
+  shoot: boolean; eject: boolean; lock: boolean; slow: boolean;
+  intakeToggle: boolean; arm: boolean; camera: boolean; handBack: boolean;   // pressed this frame
   /** any control touched this frame */
   active: boolean;
   source: 'keyboard' | 'gamepad' | 'touch' | null;
 }
 
 /** On-screen controls report into this (see drivepad.ts). */
-export interface TouchState { mx: number; my: number; turn: number; shoot: boolean; intake: boolean; eject: boolean; arm: boolean }
+export interface TouchState { mx: number; my: number; turn: number; shoot: boolean; intakeTap: boolean }
 
 const DEAD = 0.12;
 /** Deadband, rescaled, with a gentle curve so small stick moves are fine and full stick is full speed. */
@@ -96,8 +93,7 @@ export class DriverControls {
   private pressed = new Set<string>();
   private padPrev: boolean[] = [];
   private attached = false;
-  touch: TouchState = { mx: 0, my: 0, turn: 0, shoot: false, intake: false, eject: false, arm: false };
-  private touchArmPrev = false;
+  touch: TouchState = { mx: 0, my: 0, turn: 0, shoot: false, intakeTap: false };
   /** a rebinding in progress takes the next key or button */
   private capture: { kind: 'key' | 'pad'; fn: (code: string | number) => void } | null = null;
   padConnected: string | null = null;
@@ -179,8 +175,8 @@ export class DriverControls {
     const kt = (keyHeld('turnRight') ? 1 : 0) - (keyHeld('turnLeft') ? 1 : 0);
     const out: RawInput = {
       mx: kx, my: ky, turn: kt,
-      shoot: keyHeld('shoot'), intake: keyHeld('intake'), eject: keyHeld('eject'), lock: keyHeld('lock'), slow: keyHeld('slow'),
-      arm: keyHit('arm'), camera: keyHit('camera'), handBack: keyHit('handBack'),
+      shoot: keyHeld('shoot'), eject: keyHeld('eject'), lock: keyHeld('lock'), slow: keyHeld('slow'),
+      intakeToggle: keyHit('intake'), arm: keyHit('arm'), camera: keyHit('camera'), handBack: keyHit('handBack'),
       active: false, source: null,
     };
     if (this.down.size) source = 'keyboard';
@@ -198,21 +194,20 @@ export class DriverControls {
       const p = this.bindings.pad;
       if (Math.hypot(sx, sy) > Math.hypot(out.mx, out.my)) { out.mx = sx; out.my = sy; }
       if (Math.abs(tx) > Math.abs(out.turn)) out.turn = tx;
-      out.shoot ||= btn(p.shoot); out.intake ||= btn(p.intake); out.eject ||= btn(p.eject); out.lock ||= btn(p.lock); out.slow ||= btn(p.slow);
-      out.arm ||= edge(p.arm); out.camera ||= edge(p.camera); out.handBack ||= edge(p.handBack);
+      out.shoot ||= btn(p.shoot); out.eject ||= btn(p.eject); out.lock ||= btn(p.lock); out.slow ||= btn(p.slow);
+      out.intakeToggle ||= edge(p.intake); out.arm ||= edge(p.arm); out.camera ||= edge(p.camera); out.handBack ||= edge(p.handBack);
       if (sx || sy || tx || g.buttons.some((b, i) => i < 16 && b.pressed)) source = 'gamepad';
       this.padPrev = g.buttons.map((_, i) => btn(i));
     }
     // touch
     const t = this.touch;
-    if (t.mx || t.my || t.turn || t.shoot || t.intake || t.eject || t.arm) source = 'touch';
+    if (t.mx || t.my || t.turn || t.shoot || t.intakeTap) source = 'touch';
     if (Math.hypot(t.mx, t.my) > Math.hypot(out.mx, out.my)) { out.mx = t.mx; out.my = t.my; }
     if (Math.abs(t.turn) > Math.abs(out.turn)) out.turn = t.turn;
-    out.shoot ||= t.shoot; out.intake ||= t.intake; out.eject ||= t.eject;
-    if (t.arm && !this.touchArmPrev) out.arm = true;
-    this.touchArmPrev = t.arm;
+    out.shoot ||= t.shoot;
+    if (t.intakeTap) { out.intakeToggle = true; t.intakeTap = false; }
     out.source = source;
-    out.active = Math.hypot(out.mx, out.my) > 0.05 || Math.abs(out.turn) > 0.05 || out.shoot || out.intake || out.eject || out.lock || out.arm;
+    out.active = Math.hypot(out.mx, out.my) > 0.05 || Math.abs(out.turn) > 0.05 || out.shoot || out.intakeToggle || out.eject || out.lock || out.arm;
     return out;
   }
 }

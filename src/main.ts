@@ -10,6 +10,7 @@ import { sound } from './sound';
 import { ACCENTS, defaults, loadSettings, saveSettings, isLight, type Settings } from './settings';
 import type { Simulation, SimMode } from './sim/index';
 import { keyName } from './sim/input';
+import { icon } from './icons';
 
 // ------------------------------------------------------------------ iPad Safari guards
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
@@ -79,18 +80,10 @@ const ui = new UI({
   onSettingsOpen: (open) => { if (open) { touch(); sound.play('select'); } },
   onSettingsRequest: () => ui.openSettings(true, settings),
   onResetSettings: () => { applySettings(defaults(robot.secondsPerRevolution, robot.pitModeSeconds)); ui.renderSettings(settings); },
-  onSimView: (view) => {
-    const s = state.sim;
-    if (!s) return;
-    s.setView(view);
-    ui.simStatus(s.status(), view);
-    sound.play('tap');
-  },
-  onSimMode: (mode: SimMode) => { state.sim?.setMode(mode); sound.play('select'); },
-  onSimRestart: () => state.sim?.restart(),
+  onSimMode: (mode: SimMode) => { touch(); state.sim?.setMode(mode); },
   onSimExit: () => exitSim(),
-  onSimControls: () => openControls(),
-  onSimHandBack: () => { state.sim?.handBack(); },
+  onSimCamera: () => { touch(); const s = state.sim; if (!s) return; s.nextView(); applySettings({ ...settings, simView: s.view }); },
+  onSimSettings: () => openSimSettings(),
 });
 
 // ------------------------------------------------------------------ settings
@@ -111,6 +104,13 @@ function applySettings(s: Settings) {
   sound.enabled = s.sound;
   sound.setVolume(s.volume);
   if (!s.stats && !DEBUG) ui.debug(null);
+  viewer.bumperColor = s.bumper;
+  if (state.ready && !state.sim) viewer.setBumperColor(null);
+  if (state.sim) {
+    if (state.sim.alliance !== s.alliance) state.sim.setAlliance(s.alliance);
+    state.sim.setView(s.simView);
+    state.sim.setSound(s.simSound, s.volume);
+  }
   viewer.invalidate();
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (settings.appearance === 'system') applySettings(settings); });
@@ -380,7 +380,7 @@ function resetAll() {
 }
 
 // ------------------------------------------------------------------ simulation
-async function enterSim(mode: SimMode = 'auto') {
+async function enterSim(mode: SimMode = 'free') {
   if (!state.ready || state.sim) return;
   touch();
   if (ui.searchOpen) ui.openSearch(false);
@@ -400,18 +400,18 @@ async function enterSim(mode: SimMode = 'auto') {
       if (state.pit) exitPit();
       if (!drove && sim.world?.control === 'driver') { drove = true; ui.simHint(null); }
     };
-    sim.onRespawn = () => { ui.toast('Robot reset by the field crew', { icon: 'rotate-ccw' }); sound.play('respawn'); };
+    sim.onRespawn = () => ui.toast('Robot reset by the field crew', { icon: 'rotate-ccw' });
     sim.onPad = (name) => {
-      if (name) { ui.toast(`Controller connected: ${name}`, { icon: 'gamepad-2' }); sound.play('connect'); }
+      if (name) ui.toast(`Controller connected: ${name}`, { icon: 'gamepad-2' });
       controlsPage?.refresh(name);
       showDriveHint();
     };
     sim.onStatus = (s) => {
-      ui.simStatus(s, sim.view);
-      // pit display: a broadcast-style lower third instead of the controls
-      if (state.pit && !s.loading) ui.pitShowcase({ kicker: `${robot.name} · ${robot.team}`, title: s.mode === 'auto' ? 'Autonomous' : 'Endless simulation', line: `${s.scored} fuel scored · ${s.phase}` });
+      ui.simStatus(s);
+      if (state.pit && !s.loading) ui.pitShowcase({ kicker: `${robot.name} · ${robot.team}`, title: 'REBUILT simulation', line: `${s.scored} FUEL scored` });
     };
-    await sim.start(mode);
+    await sim.start(mode, settings.alliance, settings.simView);
+    sim.setSound(settings.simSound, settings.volume);
     showDriveHint();
   } catch (err) {
     console.error(err);
@@ -431,9 +431,9 @@ function showDriveHint() {
   const sim = state.sim;
   if (!sim || drove) { ui.simHint(null); return; }
   const k = (a: Parameters<typeof keyLabel>[1]) => `<kbd>${keyLabel(sim, a)}</kbd>`;
-  if (sim.controls.padConnected) ui.simHint('Left stick drives · right stick turns · <kbd>RT</kbd> shoots · <kbd>LT</kbd> intakes');
-  else if (sim.touchControls) ui.simHint('Use the sticks at the bottom to drive');
-  else ui.simHint(`Drive yourself: ${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('turnLeft')}${k('turnRight')} turn · ${k('shoot')} shoot · ${k('intake')} intake`);
+  if (sim.controls.padConnected) ui.simHint('Left stick drives · right stick turns · <kbd>RT</kbd> shoots · <kbd>LT</kbd> intake on/off');
+  else if (sim.touchControls) ui.simHint('Left thumb drives · right thumb turns');
+  else ui.simHint(`${k('forward')}${k('left')}${k('back')}${k('right')} drive · ${k('turnLeft')}${k('turnRight')} turn · ${k('shoot')} shoot · ${k('intake')} intake`);
 }
 function keyLabel(sim: Simulation, a: 'forward' | 'left' | 'back' | 'right' | 'turnLeft' | 'turnRight' | 'shoot' | 'intake') {
   return keyName(sim.controls.bindings.keys[a][0] ?? '');
@@ -442,7 +442,6 @@ async function openControls() {
   const sim = state.sim;
   if (!sim) return;
   touch();
-  sound.play('select');
   const { controlsPage: page } = await import('./sim/controls-page');
   ui.openSheet('Controls', (body) => {
     controlsPage = page(body, sim.controls, {
@@ -452,6 +451,37 @@ async function openControls() {
     });
     return () => { controlsPage?.close(); controlsPage = null; showDriveHint(); };
   }, true);
+}
+
+/** The simulation's settings sheet: exactly alliance, CAD bumper color, camera, sound, reset field, controls. */
+function openSimSettings() {
+  const sim = state.sim;
+  if (!sim) return;
+  touch();
+  ui.openSheet('Simulation', (body) => {
+    const seg = (key: 'alliance' | 'bumper' | 'simView', opts: [string, string][]) =>
+      `<div class="seg" role="group" data-key="${key}">${opts.map(([v, l]) => `<button data-v="${v}" aria-pressed="${settings[key] === v}">${l}</button>`).join('')}</div>`;
+    body.innerHTML = `
+      <span class="row-label">Alliance</span>
+      ${seg('alliance', [['red', 'Red'], ['blue', 'Blue']])}
+      <p class="tip">Our HUB, our end of the field (always at the bottom of the screen), our zones and where ferried FUEL lands.</p>
+      <span class="row-label">Bumper Color in CAD View</span>
+      ${seg('bumper', [['red', 'Red'], ['blue', 'Blue']])}
+      <span class="row-label">Camera</span>
+      ${seg('simView', [['driver', 'Driver'], ['follow', 'Follow'], ['overhead', 'Overhead']])}
+      <label class="row"><span>Robot Sound</span><input type="checkbox" class="switch" data-key="simSound" ${settings.simSound ? 'checked' : ''}></label>
+      <div class="sheet-actions">
+        <button class="act" data-act="reset-field">${icon('rotate-ccw')}<span>Reset Field</span></button>
+        <button class="act" data-act="controls">${icon('gamepad-2')}<span>Controls Help</span></button>
+      </div>`;
+    body.querySelectorAll<HTMLElement>('.seg').forEach((g) => g.querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.addEventListener('click', () => {
+      g.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      applySettings({ ...settings, [g.dataset.key!]: b.dataset.v } as Settings);
+    })));
+    body.querySelector<HTMLInputElement>('[data-key=simSound]')!.addEventListener('change', (e) => applySettings({ ...settings, simSound: (e.target as HTMLInputElement).checked }));
+    body.querySelector('[data-act=reset-field]')!.addEventListener('click', () => { state.sim?.setMode('free'); ui.closeSheet(); });
+    body.querySelector('[data-act=controls]')!.addEventListener('click', () => { ui.closeSheet(); void openControls(); });
+  });
 }
 
 function exitSim() {
@@ -684,7 +714,7 @@ function enterPit() {
   if (!state.sim) {
     showAll();
     resetAll();
-  } else state.sim.setView('tv');
+  }
   ui.hoverTip(null);
   ui.setPit(true);
   state.interacted = false;
@@ -883,6 +913,7 @@ setInterval(() => {
   viewer.frameOverview(insets(), false, true);
   ui.loaded();
   state.ready = true;
+  viewer.setBumperColor(null);
   viewer.startReveal();
   viewer.buildPickingInBackground();
   ui.showHint(true);

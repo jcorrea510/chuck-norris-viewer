@@ -489,6 +489,35 @@ export class Viewer {
   }
   setFov(fov: number) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); this.dirty = true; }
 
+  /** The CAD view's bumper color (Settings); the simulation overrides it with the alliance's. */
+  bumperColor: 'red' | 'blue' = 'red';
+  private bumperOrig = new WeakMap<THREE.BufferAttribute, Float32Array>();
+  /** Recolors the bumper fabric (red-dominant vertex colors on the fabric meshes); null = the setting. */
+  setBumperColor(color: 'red' | 'blue' | null) {
+    const want = color ?? this.bumperColor;
+    for (const m of this.meshes) {
+      const mat = m.material as THREE.Material;
+      if (mat.userData?.finish !== 'fabric') continue;
+      for (const g of [m.geometry, m.userData.fullGeometry as THREE.BufferGeometry | undefined]) {
+        const attr = g?.getAttribute('color') as THREE.BufferAttribute | undefined;
+        if (!attr) continue;
+        let orig = this.bumperOrig.get(attr);
+        if (!orig) { orig = Float32Array.from({ length: attr.count * attr.itemSize }, (_, k) => attr.getComponent(Math.floor(k / attr.itemSize), k % attr.itemSize)); this.bumperOrig.set(attr, orig); }
+        const n = attr.itemSize;
+        for (let i = 0; i < attr.count; i++) {
+          const r = orig[i * n], gg = orig[i * n + 1], b = orig[i * n + 2];
+          const red = r > 0.25 && r > gg * 2.5 && r > b * 2.5;
+          if (!red) continue;
+          // same brightness, alliance blue
+          if (want === 'blue') attr.setXYZ(i, r * 0.06, r * 0.22, r * 0.95);
+          else attr.setXYZ(i, r, gg, b);
+        }
+        attr.needsUpdate = true;
+      }
+    }
+    this.invalidate(true);
+  }
+
   // ---------------------------------------------------------------- framing
   private fitBox(box: THREE.Box3, azimuths: number[], polar: number, insets: Insets, pad = 1.06) {
     const { w, h } = this.size;

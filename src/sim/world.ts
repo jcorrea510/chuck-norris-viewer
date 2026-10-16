@@ -269,10 +269,12 @@ export class SimWorld {
     const t = Math.abs(input.turn) < DRIVE.deadband ? 0 : input.turn;
     r.manual = { vx: input.mx * k * DRIVE.vmax * scale, vz: input.mz * k * DRIVE.vmax * scale, w: -t * DRIVE.wmax * (input.slow ? 0.4 : 1), lock: input.lock };
     if (input.toggleArm) r.intakeDown = !r.intakeDown;
+    // intake on: deploy and run the rollers; off: stop and stow (the robot is then 0.728 m tall
+    // and no longer fits under a TRENCH)
     if (input.toggleIntake) {
       const on = r.rollers !== 'in';
       r.rollers = on ? 'in' : 'off';
-      if (on) r.intakeDown = true;
+      r.intakeDown = on;
     }
     if (input.intake) { r.intakeDown = true; r.rollers = 'in'; }
     if (input.eject) { r.intakeDown = true; r.rollers = 'out'; }

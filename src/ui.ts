@@ -4,15 +4,8 @@ import { robot, subsystems, shortName, type Subsystem, type Spec } from './confi
 import type { PinInfo, Mechanism } from './viewer';
 import type { SearchResult } from './parts';
 import { ACCENTS, type Settings } from './settings';
-import type { SimStatus, SimMode, SimView } from './sim/index';
+import type { SimStatus, SimMode } from './sim/index';
 
-// (kept in sync with SIM_VIEWS in sim/index.ts, which loads lazily)
-const SIM_VIEWS: { id: SimView; label: string; title: string }[] = [
-  { id: 'tv', label: 'TV', title: 'Broadcast camera: the robot and where it is going' },
-  { id: 'follow', label: 'Chase', title: 'Behind the robot' },
-  { id: 'field', label: 'Field', title: 'The whole field' },
-  { id: 'driver', label: 'Driver', title: 'From the driver station' },
-];
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string) => {
@@ -47,12 +40,10 @@ export interface UiHandlers {
   onSettingsOpen(open: boolean): void;
   onSettingsRequest(): void;
   onResetSettings(): void;
-  onSimView(view: SimView): void;
   onSimMode(mode: SimMode): void;
-  onSimRestart(): void;
   onSimExit(): void;
-  onSimControls(): void;
-  onSimHandBack(): void;
+  onSimCamera(): void;
+  onSimSettings(): void;
 }
 
 export interface ItemView {
@@ -200,51 +191,48 @@ export class UI {
     this.panel.setAttribute('aria-live', 'polite');
     this.layer.append(this.panel);
 
-    // Simulation HUD
+    // Simulation HUD: one small score pill, a FUEL/s readout only while shooting, and three small
+    // buttons. Everything else lives in the settings sheet.
     this.simHud = h('div', 'sim-hud');
     this.simHud.hidden = true;
     this.simHud.innerHTML = `
-      <div class="sim-status glass">
-        <span class="sim-dot"></span><span class="sim-phase">Simulation</span>
+      <button class="sim-exit glass icon-btn" data-act="exit" aria-label="Exit the simulation" title="Exit">${icon('x')}</button>
+      <div class="sim-score glass" aria-live="polite">
         <span class="sim-timer" hidden></span>
-        <span class="sim-sep"></span>
-        <span class="sim-stat"><b class="sim-scored">0</b> scored</span>
-        <span class="sim-stat"><b class="sim-stored">0</b><i class="sim-cap"></i> in robot</span>
-        <span class="sim-stat sim-bps-wrap"><b class="sim-bps">0.0</b> fuel/s</span>
-        <button class="sim-driver" hidden aria-label="Give control back to the robot">${icon('hand')}<span class="sim-driver-text">You’re driving</span><span class="sim-driver-back">${icon('bot')}</span></button>
+        <b class="sim-n">0</b><span class="sim-unit">FUEL</span>
+        <span class="sim-rate" hidden><b class="sim-rate-n">0</b>/s</span>
       </div>
+      <div class="sim-chip sim-ferry" hidden>${icon('undo-2')}<span>Ferry</span></div>
+      <div class="sim-chip sim-range" hidden><span>Out of range</span></div>
+      <div class="sim-tr">
+        <button class="sim-hs glass" data-act="highscore" aria-label="Play High Score: 60 seconds">${icon('trophy')}<span>High Score</span></button>
+        <button class="glass icon-btn" data-act="camera" aria-label="Next camera" title="Camera">${icon('video')}</button>
+        <button class="glass icon-btn" data-act="settings" aria-label="Simulation settings" title="Settings">${icon('settings')}</button>
+      </div>
+      <div class="sim-ai" hidden>${icon('bot')}<span>Robot driving · take the controls any time</span></div>
       <div class="sim-hint glass-clear" hidden>${icon('gamepad-2')}<span class="sim-hint-text"></span></div>
-      <div class="sim-controls glass">
-        <div class="seg sim-mode" role="group" aria-label="Simulation mode">
-          <button data-mode="auto" aria-pressed="true">Auto</button><button data-mode="endless" aria-pressed="false">Endless</button>
+      <div class="sim-count" hidden></div>
+      <div class="sim-result glass" hidden role="dialog" aria-label="High Score results">
+        <p class="sim-result-kicker">High Score · 60 seconds</p>
+        <p class="sim-result-big"><b class="sim-result-n">0</b> FUEL scored</p>
+        <div class="sim-result-grid">
+          <div><b class="r-shots">0</b><span>shots taken</span></div>
+          <div><b class="r-acc">0%</b><span>accuracy</span></div>
+          <div><b class="r-rate">0</b><span>best FUEL/s</span></div>
+          <div><b class="r-best">0</b><span class="r-best-l">personal best</span></div>
         </div>
-        <div class="dock-sep"></div>
-        <div class="seg sim-view" role="group" aria-label="Camera">
-          ${SIM_VIEWS.map((v) => `<button data-view="${v.id}" title="${v.title}" aria-pressed="${v.id === 'tv'}">${v.label}</button>`).join('')}
-        </div>
-        <div class="dock-sep"></div>
-        <button class="tool" data-act="controls" aria-label="Driving controls">${icon('gamepad-2')}<span class="label">Controls</span></button>
-        <button class="tool" data-act="restart">${icon('rotate-ccw')}<span class="label">Restart</span></button>
-        <button class="tool icon-only" data-act="settings" aria-label="Settings" title="Settings">${icon('settings')}</button>
-        <button class="tool" data-act="exit">${icon('x')}<span class="label">Exit</span></button>
-      </div>
-      <div class="sim-result glass" hidden>
-        <p class="sim-result-kicker">Autonomous complete</p>
-        <p class="sim-result-big"><b class="sim-result-n">0</b> fuel scored</p>
+        <p class="tip">At 0:00 the robot is disabled, like a real match. FUEL already in the air still counted if it went in within 3 seconds.</p>
         <div class="sim-result-actions">
-          <button class="act" data-act="replay">${icon('rotate-ccw')}<span>Replay Auto</span></button>
-          <button class="act primary" data-act="endless">${icon('play')}<span>Endless Mode</span></button>
+          <button class="act" data-act="hs-exit">${icon('x')}<span>Exit</span></button>
+          <button class="act primary" data-act="hs-again">${icon('rotate-ccw')}<span>Play Again</span></button>
         </div>
       </div>`;
-    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-view button').forEach((b) => b.addEventListener('click', () => handlers.onSimView(b.dataset.view as SimView)));
-    this.simHud.querySelector('[data-act=restart]')!.addEventListener('click', () => handlers.onSimRestart());
-    this.simHud.querySelector('[data-act=controls]')!.addEventListener('click', () => handlers.onSimControls());
-    this.simHud.querySelector('.sim-driver')!.addEventListener('click', () => handlers.onSimHandBack());
     this.simHud.querySelector('[data-act=exit]')!.addEventListener('click', () => handlers.onSimExit());
-    this.simHud.querySelector('[data-act=settings]')!.addEventListener('click', () => handlers.onSettingsRequest());
-    this.simHud.querySelector('[data-act=replay]')!.addEventListener('click', () => handlers.onSimMode('auto'));
-    this.simHud.querySelector('[data-act=endless]')!.addEventListener('click', () => handlers.onSimMode('endless'));
-    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-mode button').forEach((b) => b.addEventListener('click', () => handlers.onSimMode(b.dataset.mode as SimMode)));
+    this.simHud.querySelector('[data-act=camera]')!.addEventListener('click', () => handlers.onSimCamera());
+    this.simHud.querySelector('[data-act=settings]')!.addEventListener('click', () => handlers.onSimSettings());
+    this.simHud.querySelector('[data-act=highscore]')!.addEventListener('click', () => handlers.onSimMode('highscore'));
+    this.simHud.querySelector('[data-act=hs-again]')!.addEventListener('click', () => handlers.onSimMode('highscore'));
+    this.simHud.querySelector('[data-act=hs-exit]')!.addEventListener('click', () => handlers.onSimMode('free'));
     this.layer.append(this.simHud);
 
     // Loader
@@ -399,27 +387,36 @@ export class UI {
     this.app.classList.toggle('sim', on);
     this.simHud.hidden = !on;
   }
-  simStatus(s: SimStatus, view: SimView) {
+  simStatus(s: SimStatus) {
     const q = <T extends Element = HTMLElement>(sel: string) => this.simHud.querySelector(sel) as T;
-    q('.sim-phase').textContent = s.loading ? 'Loading field…' : s.phase;
-    q('.sim-scored').textContent = String(s.scored);
-    q('.sim-stored').textContent = String(s.stored);
-    q('.sim-cap').textContent = s.capacity ? `/${s.capacity}` : '';
-    q('.sim-bps').textContent = s.bps.toFixed(1);
+    q('.sim-n').textContent = s.loading ? '…' : String(s.scored);
+    const rate = q<HTMLElement>('.sim-rate');
+    rate.hidden = !(s.shooting || s.rate > 0);
+    q('.sim-rate-n').textContent = String(s.rate);
+    q<HTMLElement>('.sim-ferry').hidden = !(s.ferry && s.shooting);
+    q<HTMLElement>('.sim-range').hidden = !s.outOfRange;
+    const hs = s.hs;
     const timer = q<HTMLElement>('.sim-timer');
-    timer.hidden = s.time === null;
-    if (s.time !== null) timer.textContent = `0:${String(Math.ceil(s.time)).padStart(2, '0')}`;
-    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-mode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === s.mode)));
-    this.simHud.querySelectorAll<HTMLButtonElement>('.sim-view button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
-    // who is driving: you (and when the robot takes back over), or the robot
-    const drv = q<HTMLButtonElement>('.sim-driver');
-    drv.hidden = s.control !== 'driver';
-    if (s.control === 'driver') q('.sim-driver-text').textContent = s.resumeIn !== null && s.resumeIn < 14.5 ? `Robot drives in ${Math.ceil(s.resumeIn)} s` : 'You’re driving';
-    drv.classList.toggle('warn', s.outOfRange);
-    q('.sim-dot').classList.toggle('you', s.control === 'driver');
+    timer.hidden = !hs || hs.phase === 'countdown';
+    if (hs) timer.textContent = hs.phase === 'play' ? `0:${String(Math.ceil(hs.t)).padStart(2, '0')}` : '0:00';
+    timer.classList.toggle('low', !!hs && hs.phase === 'play' && hs.t <= 10);
+    q<HTMLElement>('.sim-hs').hidden = !!hs;
+    const count = q<HTMLElement>('.sim-count');
+    const showCount = !!hs && hs.phase === 'countdown';
+    count.hidden = !showCount;
+    if (showCount) { const n = String(Math.max(1, Math.ceil(hs!.t))); if (count.textContent !== n) { count.textContent = n; count.classList.remove('pop'); void count.offsetWidth; count.classList.add('pop'); } }
+    q<HTMLElement>('.sim-ai').hidden = s.loading || s.mode !== 'free' || s.control !== 'ai';
     const res = q<HTMLElement>('.sim-result');
-    res.hidden = !s.ended;
-    if (s.ended) q('.sim-result-n').textContent = String(s.scored);
+    const r = hs?.result ?? null;
+    res.hidden = !r;
+    if (r) {
+      q('.sim-result-n').textContent = String(r.score);
+      q('.r-shots').textContent = String(r.shots);
+      q('.r-acc').textContent = r.shots ? `${Math.round(r.accuracy * 100)}%` : '—';
+      q('.r-rate').textContent = String(r.bestRate);
+      q('.r-best').textContent = String(r.best);
+      q('.r-best-l').textContent = r.newBest ? 'new personal best!' : 'personal best';
+    }
   }
 
   // ------------------------------------------------------------ panel
@@ -623,6 +620,8 @@ export class UI {
           `<button class="swatch" data-accent="${k}" aria-pressed="${s.accent === k}" aria-label="${a.name}" style="--sw:${a.fill}"></button>`).join('')}</div>
         ${slider('hologram', 'Hologram Strength', 0.3, 1.6, 0.05)}
         ${toggle('labels', 'Subsystem Labels')}
+        <span class="row-label">Bumper Color</span>
+        ${seg('bumper', [['red', 'Red'], ['blue', 'Blue']])}
         <h3>Sound</h3>
         ${toggle('sound', 'Interface Sounds')}
         ${slider('volume', 'Volume', 0, 1, 0.05)}
@@ -739,6 +738,7 @@ export class UI {
     return close;
   }
   private sheetClose: (() => void) | null = null;
+  closeSheet() { this.sheetClose?.(); }
 
   /** A short explanatory sheet (used when full screen isn't available in this browser). */
   sheet(title: string, body: string) {

@@ -28,7 +28,8 @@ export const HUB = {
 };
 const CIRCUM = HUB.flats / 2 / Math.cos(Math.PI / 6);   // 0.611 m
 
-export interface NetHit { hub: number; y: number; z: number; depth: number; t: number }
+/** a ball in the net: where, how deep, which way it pushes the net (±1 along x, field frame), age */
+export interface NetHit { hub: number; y: number; z: number; depth: number; dir: number; t: number }
 
 export class Hubs {
   /** red (index 0, x < 0) and blue (index 1) */
@@ -121,7 +122,7 @@ export class Hubs {
           b.setTranslation({ x: xn + side * (r - NET.maxDepth), y, z }, true);
           if (vn < 0) b.setLinvel({ x: 0, y: v.y, z: v.z }, true);
         }
-        if (depth > 0.02 && -vn > 1) this.netHits.push({ hub: h, y, z: z - cz, depth: Math.min(depth, NET.maxDepth), t: 0 });
+        if (depth > 0.02 && -vn > 1) this.netHits.push({ hub: h, y, z: z - cz, depth: Math.min(depth, NET.maxDepth), dir: -side, t: 0 });
         jx = 0;
       }
     }

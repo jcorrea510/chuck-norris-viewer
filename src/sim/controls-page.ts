@@ -2,7 +2,7 @@
 // press the new key or button (Esc clears it). Also: what "forward" means, the on-screen controls,
 // and a reset. Saved on this device.
 import { icon } from '../icons';
-import { ACTIONS, DEFAULT_BINDINGS, keyName, padName, type Action, type DriverControls, type DriveFrame } from './input';
+import { ACTIONS, DEFAULT_BINDINGS, keyName, padName, type Action, type DriverControls } from './input';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -15,11 +15,6 @@ export interface ControlsPageOpts {
 export function controlsPage(root: HTMLElement, c: DriverControls, opts: ControlsPageOpts) {
   const render = () => {
     const b = c.bindings;
-    const frames: [DriveFrame, string, string][] = [
-      ['camera', 'Camera', 'Up on the stick drives away from the camera'],
-      ['field', 'Field', 'Away from the red driver station, like a real FRC driver'],
-      ['robot', 'Robot', 'Toward the robot’s intake'],
-    ];
     const row = (a: (typeof ACTIONS)[number]) => {
       const keys = b.keys[a.id];
       return `<div class="kb-row" data-a="${a.id}">
@@ -29,24 +24,18 @@ export function controlsPage(root: HTMLElement, c: DriverControls, opts: Control
       </div>`;
     };
     root.innerHTML = `
-      <p class="lead">Take the wheel any time in the simulation: press a drive key, move a controller stick or touch the on-screen sticks. The robot is yours until you let go for 15 seconds, then it drives itself again.</p>
+      <p class="lead">Driving is field-relative, like a real FRC driver with a gyro: up always drives toward the opponent’s wall, which is up on screen in every camera, whichever way the robot faces. In Free Drive the robot drives itself again 15 seconds after you let go.</p>
       <div class="kb-pad">${icon('gamepad-2')}<span>${opts.padName ? `Connected: <b>${esc(opts.padName)}</b>` : 'No controller yet: connect one and press any button.'}</span></div>
-      <h3>Forward means</h3>
-      <div class="seg" role="group" data-k="frame">${frames.map(([v, l]) => `<button data-v="${v}" aria-pressed="${b.frame === v}">${l}</button>`).join('')}</div>
-      <p class="tip kb-frame-tip">${esc(frames.find((f) => f[0] === b.frame)![2])}</p>
       <h3><span>Action</span><span class="kb-cols"><span>${icon('keyboard')} Keyboard</span><span>${icon('gamepad-2')} Controller</span></span></h3>
       <div class="kb-list">${ACTIONS.map(row).join('')}</div>
       <p class="tip">Tap a key or button, then press the new one. Esc clears it.</p>
       <h3>Touch</h3>
       <label class="row"><span>On-screen driving controls</span><input type="checkbox" class="switch" data-k="touch" ${opts.touch ? 'checked' : ''}></label>
-      <p class="tip">Left thumb drives, right thumb turns; Shoot, Intake and Eject work while held, Raise / Lower moves the intake. Anywhere else still moves the camera.</p>
+      <p class="tip">Left thumb drives (the stick appears where it lands), right thumb turns. Intake turns the rollers on and off (on drops the intake; off stows it, and a stowed robot is too tall for the TRENCH). Hold Shoot to feed the turrets.</p>
       <div class="sheet-actions"><button class="act" data-act="reset">${icon('rotate-ccw')}<span>Reset Controls</span></button></div>`;
     wire();
   };
   const wire = () => {
-    root.querySelectorAll<HTMLButtonElement>('[data-k=frame] button').forEach((btn) => btn.addEventListener('click', () => {
-      c.bindings.frame = btn.dataset.v as DriveFrame; c.save(); render();
-    }));
     root.querySelector<HTMLInputElement>('[data-k=touch]')!.addEventListener('change', (e) => opts.onTouch((e.target as HTMLInputElement).checked));
     root.querySelector('[data-act=reset]')!.addEventListener('click', () => { c.bindings = structuredClone(DEFAULT_BINDINGS); c.save(); render(); });
     root.querySelectorAll<HTMLButtonElement>('button.kb-key').forEach((btn) => btn.addEventListener('click', () => {

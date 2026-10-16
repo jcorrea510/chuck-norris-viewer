@@ -41,6 +41,9 @@ import i_abu from 'lucide-static/icons/arrow-big-up.svg?raw';
 import i_cdot from 'lucide-static/icons/circle-dot.svg?raw';
 import i_undo from 'lucide-static/icons/undo-2.svg?raw';
 import i_hand from 'lucide-static/icons/hand.svg?raw';
+import i_trophy from 'lucide-static/icons/trophy.svg?raw';
+import i_video from 'lucide-static/icons/video.svg?raw';
+import i_volume from 'lucide-static/icons/volume-2.svg?raw';
 
 const ICONS: Record<string, string> = {
   move, 'arrow-down-to-line': arrowDownToLine, layers, crosshair, zap, box, house,
@@ -65,6 +68,9 @@ const ICONS: Record<string, string> = {
   'circle-dot': i_cdot,
   'undo-2': i_undo,
   'hand': i_hand,
+  'trophy': i_trophy,
+  'video': i_video,
+  'volume-2': i_volume,
 };
 
 /** Returns inline SVG markup for an icon name; unknown names fall back to a box. */

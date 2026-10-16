@@ -1,39 +1,38 @@
-// On-screen driving controls for iPad and phones: a floating stick under the left thumb drives,
-// a stick under the right thumb turns, and big buttons beside it shoot, intake, eject and raise or
-// lower the intake. Each stick appears wherever the thumb lands; anywhere else still moves the
-// camera.
+// On-screen driving controls for iPad and phones: a floating stick appears under the left thumb
+// and drives (field-relative), a drag area under the right thumb turns the robot, and two large
+// buttons sit beside it: Intake (tap: on / off) and Shoot (hold). Every touch is captured, so
+// driving and shooting work together and nothing ever scrolls or zooms the page.
 import { icon } from '../icons';
 import type { TouchState } from './input';
 
-const RADIUS = 56; // px the knob can travel
+const RADIUS = 60; // px the knob can travel
 
 export class Drivepad {
   readonly el: HTMLElement;
-  private armBtn: HTMLButtonElement;
+  private intakeBtn: HTMLButtonElement;
 
   constructor(parent: HTMLElement, private state: TouchState) {
     this.el = document.createElement('div');
     this.el.className = 'drivepad';
     this.el.innerHTML = `
-      <div class="dp-zone dp-move" aria-label="Drive: drag to move"><div class="dp-base"><div class="dp-knob"></div></div><span class="dp-tag">Drive</span></div>
+      <div class="dp-zone dp-move" aria-label="Drive: touch and drag"><div class="dp-base"><div class="dp-knob"></div></div><span class="dp-tag">Drive</span></div>
       <div class="dp-zone dp-turn" aria-label="Turn: drag left or right"><div class="dp-base dp-wide"><div class="dp-knob"></div></div><span class="dp-tag">Turn</span></div>
       <div class="dp-buttons">
-        <button class="dp-btn dp-shoot" data-k="shoot" aria-label="Shoot (hold)">${icon('crosshair')}<span>Shoot</span></button>
-        <button class="dp-btn dp-intake" data-k="intake" aria-label="Intake (hold)">${icon('arrow-big-down')}<span>Intake</span></button>
-        <button class="dp-btn dp-eject" data-k="eject" aria-label="Eject (hold)">${icon('undo-2')}<span>Eject</span></button>
-        <button class="dp-btn dp-arm" data-k="arm" aria-label="Raise or lower the intake">${icon('arrow-big-up')}<span>Raise</span></button>
+        <button class="dp-btn dp-intake" aria-pressed="false" aria-label="Intake on or off">${icon('arrow-big-down')}<span>Intake</span></button>
+        <button class="dp-btn dp-shoot" aria-label="Shoot (hold)">${icon('crosshair')}<span>Shoot</span></button>
       </div>`;
     parent.append(this.el);
-    this.armBtn = this.el.querySelector('.dp-arm')!;
+    this.intakeBtn = this.el.querySelector('.dp-intake')!;
     this.stick(this.el.querySelector('.dp-move')!, (x, y) => { this.state.mx = x; this.state.my = y; }, false);
     this.stick(this.el.querySelector('.dp-turn')!, (x) => { this.state.turn = x; }, true);
-    this.el.querySelectorAll<HTMLButtonElement>('.dp-btn').forEach((b) => {
-      const k = b.dataset.k as 'shoot' | 'intake' | 'eject' | 'arm';
-      const set = (on: boolean) => { this.state[k] = on; b.classList.toggle('on', on); };
-      b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.setPointerCapture(e.pointerId); set(true); if (navigator.vibrate) navigator.vibrate(6); });
-      for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(t, () => set(false));
-      b.addEventListener('contextmenu', (e) => e.preventDefault());
-    });
+    const shoot = this.el.querySelector<HTMLButtonElement>('.dp-shoot')!;
+    const set = (on: boolean) => { this.state.shoot = on; shoot.classList.toggle('on', on); };
+    shoot.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); shoot.setPointerCapture(e.pointerId); set(true); if (navigator.vibrate) navigator.vibrate(6); });
+    for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) shoot.addEventListener(t, () => set(false));
+    this.intakeBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.state.intakeTap = true; if (navigator.vibrate) navigator.vibrate(6); });
+    for (const b of [shoot, this.intakeBtn]) b.addEventListener('contextmenu', (e) => e.preventDefault());
+    // no page gestures from anywhere on the pad
+    this.el.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
   }
 
   /** A floating thumbstick: it centers where the thumb lands and follows it within its radius. */
@@ -45,8 +44,8 @@ export class Drivepad {
       const m = Math.hypot(dx, dy);
       if (m > RADIUS) { dx *= RADIUS / m; dy *= RADIUS / m; }
       knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      // a small dead zone, then a gentle curve (fine control near the middle)
-      const k = (v: number) => { const a = Math.max(0, Math.abs(v) / RADIUS - 0.08) / 0.92; return Math.sign(v) * a * (0.35 + 0.65 * a); };
+      // the robot code applies the deadband; here a gentle curve for fine control near the middle
+      const k = (v: number) => { const a = Math.min(1, Math.abs(v) / RADIUS); return Math.sign(v) * a * (0.4 + 0.6 * a); };
       fn(k(dx), -k(dy));
     };
     zone.addEventListener('pointerdown', (e) => {
@@ -74,13 +73,12 @@ export class Drivepad {
     zone.addEventListener('lostpointercapture', end);
   }
 
-  setVisible(on: boolean) { this.el.classList.toggle('on', on); if (!on) Object.assign(this.state, { mx: 0, my: 0, turn: 0, shoot: false, intake: false, eject: false, arm: false }); }
-  /** The arm button says what it will do next. */
-  setArm(down: boolean) {
-    const label = down ? 'Raise' : 'Lower';
-    if (this.armBtn.dataset.label === label) return;
-    this.armBtn.dataset.label = label;
-    this.armBtn.innerHTML = `${icon(down ? 'arrow-big-up' : 'arrow-big-down')}<span>${label}</span>`;
+  setVisible(on: boolean) { this.el.classList.toggle('on', on); if (!on) Object.assign(this.state, { mx: 0, my: 0, turn: 0, shoot: false }); }
+  /** The Intake button shows whether the rollers are running. */
+  setIntake(on: boolean) {
+    if (this.intakeBtn.getAttribute('aria-pressed') === String(on)) return;
+    this.intakeBtn.setAttribute('aria-pressed', String(on));
+    this.intakeBtn.classList.toggle('on', on);
   }
   dispose() { this.el.remove(); }
 }

@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   // Relative base so the site works under https://<user>.github.io/<repo>/
   base: './',
-  build: { target: 'es2022', chunkSizeWarningLimit: 1200 },
+  build: { target: 'es2022', chunkSizeWarningLimit: 2600 },
   plugins: [
     VitePWA({
       registerType: 'prompt',
@@ -28,7 +28,7 @@ export default defineConfig({
       },
       workbox: {
         // Precache everything, including the model, so it works with zero Wi-Fi after the first open.
-        globPatterns: ['**/*.{js,css,html,png,svg,glb,json,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,png,svg,glb,json,bin,wasm,webmanifest}'],
         maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
         cleanupOutdatedCaches: true,
       },
