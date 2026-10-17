@@ -72,6 +72,7 @@ export class Net {
   private pinLocal: Float64Array;
   private pinLocalPrev: Float64Array;
   private pinW0: Float64Array;
+  private pinW1: Float64Array;
   private pinV: Float64Array;
   private pinList: number[] = [];
   private arm = 0;
@@ -96,7 +97,7 @@ export class Net {
     this.invM = new Float64Array(n); this.pinned = new Uint8Array(n);
     this.local = new Float32Array(n * 3); this.prevLocal = new Float32Array(n * 3);
     this.pinLocal = new Float64Array(n * 3); this.pinLocalPrev = new Float64Array(n * 3);
-    this.pinW0 = new Float64Array(n * 3); this.pinV = new Float64Array(n * 3);
+    this.pinW0 = new Float64Array(n * 3); this.pinW1 = new Float64Array(n * 3); this.pinV = new Float64Array(n * 3);
     let free = 0;
     for (let k = 0; k < n; k++) {
       const a = ab[2 * k], b = ab[2 * k + 1];
@@ -158,7 +159,7 @@ export class Net {
       this.x[3 * k] = w[0]; this.x[3 * k + 1] = w[1]; this.x[3 * k + 2] = w[2];
     }
     this.v.fill(0);
-    for (let s = 0; s < 150; s++) this.advance(null, true);
+    for (let s = 0; s < 90; s++) this.advance(null, true);
     this.v.fill(0);
     this.updateLocal(); this.prevLocal.set(this.local);
   }
@@ -257,19 +258,24 @@ export class Net {
     const P = r.p;
     const w = [0, 0, 0];
     if (!settle) {
+      // each pin travels in a straight line over the step: from where the previous step's arm put it (robot at its
+      // start pose) to where this step's arm puts it (robot drifted by its velocity)
       for (const k of this.pinList) {
-        // start-of-step pose with the arm of the previous step, then drift to this one
-        r.toWorld(this.pinLocalPrev[3 * k], this.pinLocalPrev[3 * k + 1], this.pinLocalPrev[3 * k + 2], w);
-        this.pinW0[3 * k] = w[0]; this.pinW0[3 * k + 1] = w[1]; this.pinW0[3 * k + 2] = w[2];
+        const o = 3 * k;
+        r.toWorld(this.pinLocalPrev[o], this.pinLocalPrev[o + 1], this.pinLocalPrev[o + 2], w);
+        this.pinW0[o] = w[0]; this.pinW0[o + 1] = w[1]; this.pinW0[o + 2] = w[2];
+        r.toWorld(this.pinLocal[o], this.pinLocal[o + 1], this.pinLocal[o + 2], w);
         const rx = w[0] - P[0], ry = w[1] - P[1], rz = w[2] - P[2];
-        this.pinV[3 * k] = lv.x + av.y * rz - av.z * ry; this.pinV[3 * k + 1] = lv.y + av.z * rx - av.x * rz; this.pinV[3 * k + 2] = lv.z + av.x * ry - av.y * rx;
+        this.pinV[o] = lv.x + av.y * rz - av.z * ry; this.pinV[o + 1] = lv.y + av.z * rx - av.x * rz; this.pinV[o + 2] = lv.z + av.x * ry - av.y * rx;
+        this.pinW1[o] = w[0] + this.pinV[o] * STEP; this.pinW1[o + 1] = w[1] + this.pinV[o + 1] * STEP; this.pinW1[o + 2] = w[2] + this.pinV[o + 2] * STEP;
       }
     }
     // the robot's axes in the world, for the keep-out box
     const up = r.toWorld(0, 1, 0, [0, 0, 0]), left = r.toWorld(1, 0, 0, [0, 0, 0]);
     const U = [up[0] - P[0], up[1] - P[1], up[2] - P[2]], X = [left[0] - P[0], left[1] - P[1], left[2] - P[2]];
-    const aAir = 1 - NET.dampAir * H;
-    const aCord = NET.dampCord * H;
+    // settling (reset) uses heavy air damping and almost no knot friction, so the rest shape is found in a few swings
+    const aAir = 1 - (settle ? 10 : NET.dampAir) * H;
+    const aCord = (settle ? 2 : NET.dampCord) * H;
     const alphaC = 1 / (NET.kCord * H * H), alphaK = 1 / (NET.kKnot * H * H);
     const cords = this.cords, cordL = this.cordL, links = this.links, linkL = this.linkL;
     for (let s = 0; s < SUB; s++) {
@@ -278,15 +284,9 @@ export class Net {
       if (!settle) {
         const f = (s + 1) / SUB;
         for (const k of this.pinList) {
-          // the arm moves between the previous step's pin and this one's, linearly
-          const lx = this.pinLocalPrev[3 * k] + (this.pinLocal[3 * k] - this.pinLocalPrev[3 * k]) * f;
-          const ly = this.pinLocalPrev[3 * k + 1] + (this.pinLocal[3 * k + 1] - this.pinLocalPrev[3 * k + 1]) * f;
-          const lz = this.pinLocalPrev[3 * k + 2] + (this.pinLocal[3 * k + 2] - this.pinLocalPrev[3 * k + 2]) * f;
-          r.toWorld(lx, ly, lz, w);
-          // robot drift over t beyond the start pose: v t (the pose itself is the start pose)
           const o = 3 * k;
-          const nx = w[0] + this.pinV[o] * t, ny = w[1] + this.pinV[o + 1] * t, nz = w[2] + this.pinV[o + 2] * t;
-          v[o] = this.pinV[o]; v[o + 1] = this.pinV[o + 1]; v[o + 2] = this.pinV[o + 2];
+          const nx = this.pinW0[o] + (this.pinW1[o] - this.pinW0[o]) * f, ny = this.pinW0[o + 1] + (this.pinW1[o + 1] - this.pinW0[o + 1]) * f, nz = this.pinW0[o + 2] + (this.pinW1[o + 2] - this.pinW0[o + 2]) * f;
+          v[o] = (this.pinW1[o] - this.pinW0[o]) / STEP; v[o + 1] = (this.pinW1[o + 1] - this.pinW0[o + 1]) / STEP; v[o + 2] = (this.pinW1[o + 2] - this.pinW0[o + 2]) / STEP;
           x[o] = nx; x[o + 1] = ny; x[o + 2] = nz;
         }
       }
@@ -330,7 +330,7 @@ export class Net {
         const i = cords[2 * c], j = cords[2 * c + 1], wi = invM[i], wj = invM[j];
         const o = 3 * i, q = 3 * j;
         const dx = x[q] - x[o], dy = x[q + 1] - x[o + 1], dz = x[q + 2] - x[o + 2];
-        const d = Math.hypot(dx, dy, dz) || 1e-9;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
         const nx = dx / d, ny = dy / d, nz = dz / d;
         const vr = (v[q] - v[o]) * nx + (v[q + 1] - v[o + 1]) * ny + (v[q + 2] - v[o + 2]) * nz;
         const jj = (vr * f) / (wi + wj);
@@ -349,7 +349,7 @@ export class Net {
       const ia = T[t], ib = T[t + 1], ic = T[t + 2];
       closest(bl.c, x, ia, ib, ic, cp, bc);
       let nx = bl.c[0] - cp[0], ny = bl.c[1] - cp[1], nz = bl.c[2] - cp[2];
-      const d = Math.hypot(nx, ny, nz);
+      const d = Math.sqrt(nx * nx + ny * ny + nz * nz);
       if (d >= rc) continue;
       if (d < 1e-7) { nx = 0; ny = 1; nz = 0; } else { nx /= d; ny /= d; nz /= d; }
       this.contacts++;
@@ -421,7 +421,7 @@ function solve(xp: Float64Array, invM: Float64Array, pairs: Uint16Array, L: Floa
     const i = pairs[2 * c], j = pairs[2 * c + 1];
     const o = 3 * i, q = 3 * j;
     const dx = xp[o] - xp[q], dy = xp[o + 1] - xp[q + 1], dz = xp[o + 2] - xp[q + 2];
-    const d = Math.hypot(dx, dy, dz);
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const C = d - L[c];
     if (C <= 0 || d < 1e-9) continue;
     const wi = invM[i], wj = invM[j];

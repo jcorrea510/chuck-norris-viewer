@@ -114,4 +114,28 @@ describe('cargo net', () => {
     expect(worst).toBeLessThan(0.02);
     expect(last).toBeLessThan(e0 + 0.001);
   });
+
+  test('60 s of hard driving, shooting and intake toggles: bounded, finite, cheap', async () => {
+    const w = await driverWorld(-5.2, 0, Math.PI / 2, { intakeDown: true });
+    const net = w.net;
+    const pre = net.preStep.bind(net);
+    let ms = 0, steps = 0, worstMs = 0;
+    net.preStep = (f) => { const t = performance.now(); pre(f); const d = performance.now() - t; ms += d; steps++; worstMs = Math.max(worstMs, d); };
+    let vmax = 0, box = 0, contacts = 0, finite = true;
+    for (let k = 0; k < 60 * 120; k++) {
+      const t = k / 120;
+      const inp = input({ mx: Math.sin(t * 0.9), mz: Math.cos(t * 1.3), turn: Math.sin(t * 0.7) > 0 ? 1 : -1, shoot: t % 12 > 4, intake: t % 9 < 6, toggleArm: k % 600 === 0 });
+      w.step(inp);
+      contacts += net.contacts;
+      for (let n = 0; n < net.n; n++) {
+        vmax = Math.max(vmax, net.speedOf(n));
+        for (let c = 0; c < 3; c++) { const x = net.local[3 * n + c]; if (!Number.isFinite(x)) finite = false; }
+        box = Math.max(box, Math.abs(net.local[3 * n]), Math.abs(net.local[3 * n + 2]) - 0.3, net.local[3 * n + 1] - 0.9);
+      }
+    }
+    log(`net 60 s hard drive: max knot speed ${vmax.toFixed(1)} m/s, max excursion ${box.toFixed(2)} m, ${(ms / steps * 1000).toFixed(0)} µs/step (worst ${(worstMs * 1000).toFixed(0)}), ${contacts} contact-steps, scored ${w.scored}`);
+    expect(finite).toBe(true);
+    expect(vmax).toBeLessThan(25);
+    expect(box).toBeLessThan(0.5);
+  });
 });
