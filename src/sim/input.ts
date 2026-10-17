@@ -20,7 +20,7 @@ export const ACTIONS: { id: Action; label: string; hint: string; pad: boolean }[
   { id: 'unjam', label: 'Unjam', hint: 'Hold: runs the rollers backwards to clear a jam', pad: true },
   { id: 'reverseIntake', label: 'Reverse intake', hint: 'Hold: spits fuel out through the intake', pad: false },
   { id: 'resetHeading', label: 'Reset heading', hint: 'Makes the way the robot faces now “forward”', pad: true },
-  { id: 'turretLock', label: 'Turret lock', hint: 'Toggles the turrets locked straight ahead', pad: true },
+  { id: 'turretLock', label: 'Turret lock', hint: 'Toggles both turrets locked pointing backward (over the turret end) instead of tracking', pad: true },
   { id: 'camera', label: 'Next camera', hint: 'Driver · Follow · Overhead', pad: true },
   { id: 'handBack', label: 'Give control back', hint: 'The robot drives itself again', pad: true },
 ];

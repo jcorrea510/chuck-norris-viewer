@@ -306,24 +306,26 @@ async function simTests() {
   await page.evaluate(() => window.__viewer.state.sim.world.robot.setIntakeNow(false));
   await page.touchscreen.tap(intakeBox.x + intakeBox.width / 2, intakeBox.y + intakeBox.height / 2);
   await step(0.6);
-  check(await page.evaluate(() => { const r = window.__viewer.state.sim.robot; return r.rollers === 'in' && r.intakeDown && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'true'; }), 'Intake button deploys the intake and runs the rollers (and shows ON)');
+  check(await page.evaluate(() => { const r = window.__viewer.state.sim.world.robot; return r.rollers === 'in' && r.intakeDown && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'true'; }), 'Intake button deploys the intake and runs the rollers (and shows ON)');
   await page.touchscreen.tap(intakeBox.x + intakeBox.width / 2, intakeBox.y + intakeBox.height / 2);
   await step(0.6);
-  check(await page.evaluate(() => { const r = window.__viewer.state.sim.robot; return r.rollers === 'off' && r.intakeDown && r.intakeAngle > -5 && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'false'; }), 'tapping Intake again stops the rollers but the intake STAYS DOWN');
+  check(await page.evaluate(() => { const r = window.__viewer.state.sim.world.robot; return r.rollers === 'off' && r.intakeDown && r.intakeAngle > -5 && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'false'; }), 'tapping Intake again stops the rollers but the intake STAYS DOWN');
   await page.touchscreen.tap(intakeBox.x + intakeBox.width / 2, intakeBox.y + intakeBox.height / 2);
   await step(0.3);
   await page.touchscreen.tap(upBox.x + upBox.width / 2, upBox.y + upBox.height / 2);
   await step(0.8);
-  check(await page.evaluate(() => { const r = window.__viewer.state.sim.robot; return !r.intakeDown && r.rollers === 'off' && r.intakeAngle < -60 && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'false'; }), 'Up stows the intake (and clears a latched Intake)');
+  check(await page.evaluate(() => { const r = window.__viewer.state.sim.world.robot; return !r.intakeDown && r.rollers === 'off' && r.intakeAngle < -60 && document.querySelector('.dp-intake').getAttribute('aria-pressed') === 'false'; }), 'Up stows the intake (and clears a latched Intake)');
   // keyboard defaults, checked on the input handed to the physics
   await page.evaluate(() => {
     const b = window.__viewer.state.sim.backend, orig = b.tick.bind(b);
-    b.tick = (dt, input, dbg) => { window.__lastInput = { ...input }; return orig(dt, input, dbg); };
+    window.__seen = {};
+    b.tick = (dt, input, dbg) => { window.__lastInput = { ...input }; for (const k of ['retract', 'resetHeading', 'turretLock']) if (input[k]) window.__seen[k] = true; return orig(dt, input, dbg); };
   });
   const keyInput = async (code) => {
     await page.evaluate((code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true })), code);
     await step(0.1);
-    const got = await page.evaluate(() => window.__lastInput);
+    const got = await page.evaluate(() => ({ ...window.__lastInput, ...window.__seen }));
+    await page.evaluate(() => { window.__seen = {}; });
     await page.evaluate((code) => window.dispatchEvent(new KeyboardEvent('keyup', { code, key: code, bubbles: true })), code);
     await step(0.1);
     return got;

@@ -795,12 +795,12 @@ kbd {
 .kb-key { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px; min-height: 36px; border-radius: 10px; background: var(--fill); padding: 2px 6px; }
 .kb-key i { font-style: normal; font-size: 11px; color: var(--text-3); margin: 0 3px; }
 .kb-key em { font-style: normal; font-size: 13px; color: var(--text-3); }
-.kb-key.fixed { background: transparent; }
-.kb-key.fixed kbd { background: transparent; box-shadow: none; color: var(--text-3); font-weight: 500; }
+.kb-key.fixed { background: transparent; padding: 2px 0; }
+.kb-key.fixed kbd { background: transparent; box-shadow: none; color: var(--text-3); font-weight: 500; white-space: nowrap; }
 .kb-key.listening { background: var(--accent); animation: blink 1s ease-in-out infinite; }
 .kb-key.listening kbd { background: transparent; box-shadow: none; color: #fff; }
-.app.portrait .kb-row, .app.portrait .kb-cols { grid-template-columns: 1fr 104px 84px; }
-.app.portrait .kb-cols { grid-template-columns: 104px 84px; }
+.app.portrait .kb-row, .app.portrait .kb-cols { grid-template-columns: 1fr 104px 92px; }
+.app.portrait .kb-cols { grid-template-columns: 104px 92px; }
 @media (max-width: 600px) { .app.portrait .kb-label span { display: none; } }
 
 /* ------------------------------------------------------------------ simulation HUD (minimal) */
