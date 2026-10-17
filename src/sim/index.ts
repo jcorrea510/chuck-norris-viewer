@@ -92,6 +92,7 @@ export class Simulation {
   private rig = new PovRig();
   /** camera as last drawn (internal frame), and the blend from the previous camera after a view change */
   private final = { p: new THREE.Vector3(), t: new THREE.Vector3(), fov: 50, ok: false };
+  private cur = { p: new THREE.Vector3(), t: new THREE.Vector3() };
   private from = { p: new THREE.Vector3(), t: new THREE.Vector3(), fov: 50 };
   private blend = 1;
   private drawnView: SimView | null = null;
@@ -627,7 +628,7 @@ export class Simulation {
     // the springs keep following the target in every view, so switching back to one starts from here
     const sp = this.camPos.update(pos, rigid ? 0.001 : smooth, dt), st = this.camTgt.update(tgt, rigid ? 0.001 : smooth * 0.8, dt);
     const fp = this.camFov.update(fov, rigid ? 0.001 : 0.4, dt);
-    const cp = this.final.p.copy(sp), ct = this.final.t.copy(st);
+    const cp = this.cur.p.copy(sp), ct = this.cur.t.copy(st);
     let cf = fp;
     // a view change eases from the camera as last drawn
     if (this.drawnView !== this.view) {
@@ -639,7 +640,7 @@ export class Simulation {
       const k = this.blend * this.blend * (3 - 2 * this.blend);
       cp.lerpVectors(this.from.p, sp, k); ct.lerpVectors(this.from.t, st, k); cf = this.from.fov + (fp - this.from.fov) * k;
     }
-    this.final.fov = cf; this.final.ok = true;
+    this.final.p.copy(cp); this.final.t.copy(ct); this.final.fov = cf; this.final.ok = true;
     const p = cp.clone().applyMatrix4(this.flip), t = ct.clone().applyMatrix4(this.flip);
     if (cam.near !== near) { cam.near = near; cam.updateProjectionMatrix(); }
     if (Math.abs(cam.fov - cf) > 0.01) v.setFov(cf);
