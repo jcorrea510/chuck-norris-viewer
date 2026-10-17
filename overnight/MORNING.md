@@ -2,6 +2,8 @@
 
 ## Round 3 (Sat Oct 17): "make it literally our robot with our code"
 
+*Live on the site since 13:10. Physics 76/76, 600 s soak, browser checks 146/146 in Chromium and WebKit (iPad).*
+
 | Your feedback | Status |
 |---|---|
 | Stuck behind the HUBs / by the TOWER | **Fixed, tested.** The TOWER colliders were mirrored to the wrong side of each tower, so the robot drove through the drawn uprights and hit invisible ones. Two invisible floor-to-ceiling posts stood beside each HUB where the field only has struts from the HUB top. The AI's planning grid is fixed too. `tests/phys/collision.test.ts` checks both HUBs, both towers, slides along every face, and full-speed hits. One remaining behavior: crawling slowly over a BUMP beaches the robot on its belly at the peak (CAD belly 3.5–4.8 cm, peak 16.5 cm), and full stick drives over. If the real robot crawls over fine, tell me its belly clearance. |
