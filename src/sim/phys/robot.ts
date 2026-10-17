@@ -748,7 +748,7 @@ export class Robot {
       // take the next ball at this lane's mouth
       if (belt > 0.01 && (t.lane.length === 0 || t.lane[t.lane.length - 1].s > 2 * R + 0.01) && t.lane.length < 3) {
         const mouth = FEED_FIXED(t.side)[0];
-        let best = -1, bd = 0.15;
+        let best = -1, bd = 0.2;
         for (const i of this.onboard) {
           const o = i * 3;
           const L = this.toLocal(f.pos[o], f.pos[o + 1], f.pos[o + 2]);

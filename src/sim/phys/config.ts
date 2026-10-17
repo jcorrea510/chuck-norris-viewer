@@ -278,9 +278,9 @@ export const INDEXER = {
    */
   inertia: 0.0008, indexerFriction: 0.35, hotdogFriction: 0.05,
   /** lane belt surface speed at indexerRps (m/s; the ball rides at half of it, 3× that inside the turret). EDIT: tuned to SimConstants.Fuel.SHOOT_BALLS_PER_SECOND_PER_TURRET = 4 balls/s with a full hopper */
-  beltSpeed: 1.25,
+  beltSpeed: 2.4,
   /** the hopper floor (hotdog rollers) walks fuel toward the lane mouths at this speed at hotdogRps (m/s). EDIT */
-  floorSpeed: 0.9,
+  floorSpeed: 1.5,
 };
 
 export const NET = {

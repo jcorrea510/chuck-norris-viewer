@@ -265,8 +265,12 @@ export class RobotCode {
       this.isIntaking = this.rollerSpeed > 0;
     }
     if (!inp.lt && prev.lt && this.ltCommand) { this.ltCommand = false; this.isIntaking = false; this.rollerSpeed = 0; }
-    // RB: intake.retractCommand (runOnce)
-    if (inp.rb) this.pivotSetpoint = INTAKE.upPos;
+    // RB: intake.retractCommand (runOnce, requires the intake): it interrupts a running IntakeCommand
+    // (end() → stopIntake) or reverse command, which do not restart until their trigger is pressed again
+    if (inp.rb) {
+      if (this.ltCommand || this.reverseCmd) { this.ltCommand = false; this.reverseCmd = false; this.isIntaking = false; this.rollerSpeed = 0; }
+      this.pivotSetpoint = INTAKE.upPos;
+    }
     // Start + B: intake.reverseIntake while held (requires the intake, so it cancels the LT command)
     const rev = inp.start && inp.b, revPrev = prev.start && prev.b;
     if (rev && !revPrev) { this.reverseCmd = true; this.ltCommand = false; this.isIntaking = false; this.rollerSpeed = INTAKE.rollerUnjam; }
