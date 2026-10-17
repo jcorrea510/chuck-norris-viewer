@@ -79,10 +79,13 @@ export class Hubs {
       const desc = R.ColliderDesc.convexHull(new Float32Array(pts));
       if (desc) this.eng.fixed(desc, 'polycarb');
     }
-    // net frame: two uprights at each side and the top bar
+    // net frame: two slanted struts from the HUB's top (y 1.27) up and back to the top bar, as in the
+    // field model (nothing stands on the floor there: a robot drives past the HUB's neutral side), and the top bar
     const nx = cx + s * HUB.net.off;
     for (const z of [-0.725, 0.725]) {
-      this.eng.fixed(R.ColliderDesc.cuboid(0.14, HUB.net.y1 / 2 + 0.02, 0.03).setTranslation(nx - s * 0.12, HUB.net.y1 / 2 + 0.02, cz + z), 'steel');
+      const pts: number[] = [];
+      for (const [dx, y] of [[0.06, 1.27], [0.15, 1.27], [0.88, 3.06], [0.80, 3.06]]) for (const dz of [-0.0225, 0.0225]) pts.push(cx + s * dx, y, cz + z + dz);
+      this.eng.fixed(R.ColliderDesc.convexHull(new Float32Array(pts))!, 'steel');
     }
     this.eng.fixed(R.ColliderDesc.cuboid(0.025, 0.03, 0.75).setTranslation(nx, HUB.net.y1 + 0.03, cz), 'steel');
   }
