@@ -95,7 +95,7 @@ for (const s of shots) {
 if (process.argv.includes('--blend')) {
   // like verify.mjs: tap the camera button, let the real (slow) rAF frames run, then step 90 frames and look at the camera's per-frame motion
   const res = [];
-  await page.evaluate(() => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView('follow'); const w = sim.world; w.robot.place(0.5, -1.2, Math.PI / 2); w.robot.preload(w.preloadIdx); w.robot.shoot = true; sim.controls.touch.shoot = true; for (let i = 0; i < 90; i++) sim.frame(1 / 60); sim.controls.touch.shoot = false; for (let i = 0; i < 30; i++) sim.frame(1 / 60); });
+  await page.evaluate(() => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView('follow'); const w = sim.world; w.takeOver(); w.robot.place(0.5, -1.2, Math.PI / 2); w.robot.preload(w.preloadIdx); w.robot.shoot = true; sim.controls.touch.shoot = true; for (let i = 0; i < 90; i++) sim.frame(1 / 60); sim.controls.touch.shoot = false; for (let i = 0; i < 30; i++) sim.frame(1 / 60); });
   for (let k = 0; k < 4; k++) {
     await page.click('.sim-tr [data-act=camera]');
     res.push(await page.evaluate(() => {

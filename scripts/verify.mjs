@@ -362,9 +362,12 @@ async function simTests() {
   const views = [];
   for (let k = 0; k < ALL.length + 1; k++) {
     views.push(await page.evaluate(() => window.__viewer.state.sim.view));
+    // the blend must be measured from the tap: hold the sim's own frames (the page's real, slow frames would run it out unseen)
+    await page.evaluate(() => { window.__viewer.state.sim.paused = true; });
     await tapEl(page, '.sim-tr [data-act=camera]');
     let path = await page.evaluate(() => {
       const sim = window.__viewer.state.sim, out = [], rob = [];
+      sim.paused = false;
       for (let i = 0; i < 90; i++) { sim.frame(1 / 60); out.push(sim.cameraRig().toArray()); rob.push([sim.robot.x, sim.robot.z, sim.robot.th]); }
       return { out, rob };
     });
