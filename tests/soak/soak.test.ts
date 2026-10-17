@@ -58,5 +58,6 @@ test(`soak: ${SECONDS} s of random driving`, async () => {
   console.log(`soak ${SECONDS} s simulated in ${secs.toFixed(0)} s: scored ${w.hubs.scoredBy[0]}, shots ${r.shotsFired}, respawns? robot at (${r.x.toFixed(2)}, ${r.z.toFixed(2)}); worst step ${worstStep.toFixed(1)} ms; memory (MB) ${mem.map((m) => m.toFixed(0)).join(' ')}`);
   if (problems.length) console.log(problems.slice(0, 20).join('\n'));
   expect(problems).toEqual([]);
-  if (mem.length >= 4) expect(mem[mem.length - 1] - mem[2]).toBeLessThan(40);
+  // heap samples are noisy without forced GC: a leak shows in the floor of the samples, not in one reading
+  if (mem.length >= 6) expect(Math.min(...mem.slice(-3)) - Math.min(...mem.slice(0, 4))).toBeLessThan(40);
 }, 3_600_000);
