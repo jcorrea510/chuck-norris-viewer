@@ -15,10 +15,24 @@
 //             through Rapier, and the robot gets the net's reaction (the pins carry the load).
 // The net runs before the engine step (the ball's path is swept through the cloth, so nothing
 // tunnels), with the robot pose at the start of the step extrapolated by its velocity.
-import type { Fuel } from './fuel';
-import { BS } from './fuel';
 import { FUEL, STEP } from './config';
-import { couplerOffset, type Robot } from './robot';
+
+/** what the net needs of the robot and the FUEL (keeps this file free of Rapier: the CAD viewer drapes the same net) */
+export interface NetRobot {
+  p: number[]; intakeAngle: number; captured: { i: number }[];
+  body: { linvel(): { x: number; y: number; z: number }; angvel(): { x: number; y: number; z: number }; applyImpulseAtPoint(f: { x: number; y: number; z: number }, p: { x: number; y: number; z: number }, wake: boolean): void };
+  toWorld(x: number, y: number, z: number, out?: number[]): number[];
+  toLocal(x: number, y: number, z: number, out?: number[]): number[];
+}
+interface Body {
+  isSleeping(): boolean; linvel(): { x: number; y: number; z: number }; angvel(): { x: number; y: number; z: number };
+  applyImpulse(f: { x: number; y: number; z: number }, wake: boolean): void; applyTorqueImpulse(t: { x: number; y: number; z: number }, wake: boolean): void;
+}
+export interface NetFuel { n: number; st: Uint8Array; pos: Float32Array; mass: Float32Array; bodies: Body[] }
+/** BS.FREE and BS.FLYING (phys/fuel.ts): the states a ball can be in the cloth */
+const FREE = 0, FLYING = 1;
+/** the coupler's displacement (z, y) at a four-bar angle (deg): robot.ts couplerOffset */
+export type CouplerFn = (deg: number) => [number, number];
 
 const R = FUEL.radius;
 const G = 9.81;
@@ -49,6 +63,35 @@ const SUB = NET.substeps, H = STEP / SUB;
 const BALL_I = FUEL.inertiaFactor;
 
 interface BallCtx { i: number; m: number; c: Float64Array; v: Float64Array; w: Float64Array; dV: Float64Array; dW: Float64Array; tris: number[]; asleep: boolean }
+
+/** The lattice: knots at (a, b), a + b even; cords to the four diagonal neighbours, weak links two cells apart, triangles for contact and drawing. */
+export function netTopology() {
+  const { N, M } = NET;
+  const index = new Int16Array((N + 1) * (M + 1)).fill(-1);
+  const abl: number[] = [];
+  for (let b = 0; b <= M; b++) for (let a = 0; a <= N; a++) if ((a + b) % 2 === 0) { index[b * (N + 1) + a] = abl.length / 2; abl.push(a, b); }
+  const n = abl.length / 2, ab = Int16Array.from(abl), pinned = new Uint8Array(n);
+  for (let k = 0; k < n; k++) { const a = ab[2 * k], b = ab[2 * k + 1]; if (a === 0 || a === N || b === 0 || b === M) pinned[k] = 1; }
+  const at = (a: number, b: number) => (a < 0 || b < 0 || a > N || b > M ? -1 : index[b * (N + 1) + a]);
+  const cords: number[] = [], links: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const a = ab[2 * k], b = ab[2 * k + 1];
+    for (const [da, db] of [[1, 1], [1, -1]]) { const j = at(a + da, b + db); if (j >= 0 && !(pinned[k] && pinned[j])) cords.push(k, j); }
+    for (const [da, db] of [[2, 0], [0, 2]]) { const j = at(a + da, b + db); if (j >= 0 && !(pinned[k] && pinned[j])) links.push(k, j); }
+  }
+  // triangles: a diamond around each odd position, split along its horizontal diagonal
+  const tris: number[] = [];
+  for (let b = 0; b <= M; b++) for (let a = 0; a <= N; a++) {
+    if ((a + b) % 2 === 0) continue;
+    const L = at(a - 1, b), Rr = at(a + 1, b), D = at(a, b - 1), U = at(a, b + 1);
+    if (L >= 0 && Rr >= 0 && D >= 0 && U >= 0) tris.push(L, D, Rr, L, Rr, U);
+    else if (L < 0 && Rr >= 0 && D >= 0 && U >= 0) tris.push(D, Rr, U);
+    else if (Rr < 0 && L >= 0 && D >= 0 && U >= 0) tris.push(L, D, U);
+    else if (D < 0 && L >= 0 && Rr >= 0 && U >= 0) tris.push(L, Rr, U);
+    else if (U < 0 && L >= 0 && Rr >= 0 && D >= 0) tris.push(L, D, Rr);
+  }
+  return { n, ab, index, pinned, cords: Uint16Array.from(cords), links: Uint16Array.from(links), tris: Uint16Array.from(tris) };
+}
 
 export class Net {
   readonly n: number;
@@ -85,59 +128,32 @@ export class Net {
   /** contacts last step (for tests/debug) */
   contacts = 0;
 
-  constructor(private robot: Robot) {
-    const { N, M } = NET;
-    this.index = new Int16Array((N + 1) * (M + 1)).fill(-1);
-    const ab: number[] = [];
-    for (let b = 0; b <= M; b++) for (let a = 0; a <= N; a++) if ((a + b) % 2 === 0) { this.index[b * (N + 1) + a] = ab.length / 2; ab.push(a, b); }
-    this.n = ab.length / 2;
-    this.ab = Int16Array.from(ab);
+  constructor(private robot: NetRobot, private coupler: CouplerFn) {
+    const T = netTopology();
+    this.index = T.index; this.ab = T.ab; this.n = T.n; this.pinned = T.pinned;
+    this.cords = T.cords; this.links = T.links; this.tris = T.tris;
     const n = this.n;
     this.x = new Float64Array(n * 3); this.v = new Float64Array(n * 3); this.xp = new Float64Array(n * 3);
-    this.invM = new Float64Array(n); this.pinned = new Uint8Array(n);
+    this.invM = new Float64Array(n);
     this.local = new Float32Array(n * 3); this.prevLocal = new Float32Array(n * 3);
     this.pinLocal = new Float64Array(n * 3); this.pinLocalPrev = new Float64Array(n * 3);
     this.pinW0 = new Float64Array(n * 3); this.pinW1 = new Float64Array(n * 3); this.pinV = new Float64Array(n * 3);
     let free = 0;
-    for (let k = 0; k < n; k++) {
-      const a = ab[2 * k], b = ab[2 * k + 1];
-      if (a === 0 || a === N || b === 0 || b === M) { this.pinned[k] = 1; this.pinList.push(k); } else free++;
-    }
+    for (let k = 0; k < n; k++) { if (this.pinned[k]) this.pinList.push(k); else free++; }
     for (let k = 0; k < n; k++) this.invM[k] = this.pinned[k] ? 0 : free / NET.mass;
-    // cords (diagonals) and knot links (two cells apart), skipping pairs of pinned knots
-    const cords: number[] = [], links: number[] = [];
-    const at = (a: number, b: number) => (a < 0 || b < 0 || a > N || b > M ? -1 : this.index[b * (N + 1) + a]);
-    for (let k = 0; k < n; k++) {
-      const a = ab[2 * k], b = ab[2 * k + 1];
-      for (const [da, db] of [[1, 1], [1, -1]]) { const j = at(a + da, b + db); if (j >= 0 && !(this.pinned[k] && this.pinned[j])) cords.push(k, j); }
-      for (const [da, db] of [[2, 0], [0, 2]]) { const j = at(a + da, b + db); if (j >= 0 && !(this.pinned[k] && this.pinned[j])) links.push(k, j); }
-    }
-    this.cords = Uint16Array.from(cords); this.links = Uint16Array.from(links);
-    this.cordL = new Float64Array(cords.length / 2); this.linkL = new Float64Array(links.length / 2);
-    // triangles: a diamond around each odd knot position, split along its horizontal diagonal
-    const tris: number[] = [];
-    for (let b = 0; b <= M; b++) for (let a = 0; a <= N; a++) {
-      if ((a + b) % 2 === 0) continue;
-      const L = at(a - 1, b), Rr = at(a + 1, b), D = at(a, b - 1), U = at(a, b + 1);
-      if (L >= 0 && Rr >= 0 && D >= 0 && U >= 0) tris.push(L, D, Rr, L, Rr, U);
-      else if (L < 0 && Rr >= 0 && D >= 0 && U >= 0) tris.push(D, Rr, U);
-      else if (Rr < 0 && L >= 0 && D >= 0 && U >= 0) tris.push(L, D, U);
-      else if (D < 0 && L >= 0 && Rr >= 0 && U >= 0) tris.push(L, Rr, U);
-      else if (U < 0 && L >= 0 && Rr >= 0 && D >= 0) tris.push(L, D, Rr);
-    }
-    this.tris = Uint16Array.from(tris);
+    this.cordL = new Float64Array(this.cords.length / 2); this.linkL = new Float64Array(this.links.length / 2);
     // design lengths: the deployed flat lattice plus slack
     const P = new Float64Array(n * 3);
     this.lattice(0, P);
-    for (let c = 0; c < this.cordL.length; c++) this.cordL[c] = dist(P, cords[2 * c], cords[2 * c + 1]) * (1 + NET.slack);
-    for (let c = 0; c < this.linkL.length; c++) this.linkL[c] = dist(P, links[2 * c], links[2 * c + 1]) * (1 + NET.slack);
+    for (let c = 0; c < this.cordL.length; c++) this.cordL[c] = dist(P, this.cords[2 * c], this.cords[2 * c + 1]) * (1 + NET.slack);
+    for (let c = 0; c < this.linkL.length; c++) this.linkL[c] = dist(P, this.links[2 * c], this.links[2 * c + 1]) * (1 + NET.slack);
     this.reset();
   }
 
   /** the flat lattice between the pins (robot frame) for an arm angle */
   private lattice(arm: number, out: Float64Array) {
     const { N, M, half, backZ, backY, frontZ, frontY } = NET;
-    const [dz, dy] = couplerOffset(arm);
+    const [dz, dy] = this.coupler(arm);
     for (let k = 0; k < this.n; k++) {
       const a = this.ab[2 * k], b = this.ab[2 * k + 1], t = b / M;
       out[3 * k] = -half + (2 * half * a) / N;
@@ -165,7 +181,7 @@ export class Net {
   }
 
   /** Before the engine step: moves the cloth through one step with the balls in contact. */
-  preStep(fuel: Fuel) {
+  preStep(fuel: NetFuel) {
     const r = this.robot;
     // teleported (placed, respawned): the cloth starts over under the robot
     if (Math.hypot(r.p[0] - this.lastP[0], r.p[1] - this.lastP[1], r.p[2] - this.lastP[2]) > 0.4) this.reset();
@@ -194,7 +210,7 @@ export class Net {
   }
 
   // ------------------------------------------------------------------ balls
-  private gatherBalls(fuel: Fuel) {
+  private gatherBalls(fuel: NetFuel) {
     this.balls.length = 0;
     const x = this.x, n = this.n;
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -205,7 +221,7 @@ export class Net {
     const captured = this.robot.captured;
     for (let i = 0; i < fuel.n; i++) {
       const s = fuel.st[i];
-      if (s !== BS.FREE && s !== BS.FLYING) continue;
+      if (s !== FREE && s !== FLYING) continue;
       const o = i * 3, px = fuel.pos[o], py = fuel.pos[o + 1], pz = fuel.pos[o + 2];
       if (px < x0 - m || px > x1 + m || py < y0 - m || py > y1 + m || pz < z0 - m || pz > z1 + m) continue;
       if (captured.length && captured.some((c) => c.i === i)) continue;
@@ -229,7 +245,7 @@ export class Net {
     }
   }
 
-  private applyToBalls(fuel: Fuel) {
+  private applyToBalls(fuel: NetFuel) {
     const rb = this.robot, J = [0, 0, 0];
     this.lastReaction[0] = this.lastReaction[1] = this.lastReaction[2] = 0;
     for (const bl of this.balls) {
@@ -406,7 +422,7 @@ export class Net {
   get sag() {
     const { N, M } = NET;
     const k = this.index[(M / 2) * (N + 1) + N / 2];
-    const pinY = (NET.backY + NET.frontY + couplerOffset(this.arm)[1]) / 2;
+    const pinY = (NET.backY + NET.frontY + this.coupler(this.arm)[1]) / 2;
     return pinY - this.local[3 * k + 1];
   }
 }

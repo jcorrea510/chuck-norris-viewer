@@ -3,6 +3,7 @@ import { describe, test, expect } from 'vitest';
 import { driverWorld, input, run } from './helpers';
 import { FUEL, STEP } from '../../src/sim/phys/config';
 import { NET } from '../../src/sim/phys/net';
+import { PANELS, PLATE } from '../../src/sim/phys/panels';
 import { NO_INPUT, type SimWorld } from '../../src/sim/world';
 
 const log = (s: string) => console.log(s);
@@ -137,5 +138,89 @@ describe('cargo net', () => {
     expect(finite).toBe(true);
     expect(vmax).toBeLessThan(25);
     expect(box).toBeLessThan(0.5);
+  });
+});
+
+describe('polycarbonate panels', () => {
+  /** shoot ball 0 at v (robot frame) from p; returns the strike's deflection under the ball (m) and the ball's velocity right after it */
+  async function hit(k: number, p: [number, number, number], v: [number, number, number]) {
+    const w = await netWorld();
+    w.panels.clear();
+    throwBall(w, 0, p, v);
+    let strikes = 0, after = [0, 0, 0], ring = 0;
+    for (let s = 0; s < 20; s++) {
+      w.step(NO_INPUT);
+      if (w.panels.strikes && !strikes) { const l = w.fuel.bodies[0].linvel(); after = [Math.hypot(l.x, l.y, l.z), 0, 0]; }
+      strikes += w.panels.strikes;
+      ring = Math.max(ring, w.panels.amplitude(k));
+    }
+    return { w, peak: w.panels.lastPeak, strikes, after, ring };
+  }
+
+  test('modes: 170 Hz first mode from plate theory, ζ = 0.05', async () => {
+    const w = await netWorld();
+    const m = w.panels.modes[0];
+    log(`panel modes: f1 ${(m.omega[0] / 2 / Math.PI).toFixed(0)} Hz, f2 ${(m.omega[1] / 2 / Math.PI).toFixed(0)} Hz, M1 ${(m.mass[0] * 1000).toFixed(0)} g, Γ1 ${m.gamma[0].toFixed(2)}, k1 ${(m.mass[0] * m.omega[0] ** 2 / 1000).toFixed(0)} kN/m`);
+    expect(m.omega[0] / 2 / Math.PI).toBeGreaterThan(120);
+    expect(m.omega[0] / 2 / Math.PI).toBeLessThan(250);
+    expect(PLATE.zeta).toBeGreaterThanOrEqual(0.03);
+    expect(PLATE.zeta).toBeLessThanOrEqual(0.08);
+  });
+
+  test('a ball at 10 m/s into a hopper wall flexes it 1–6 mm', async () => {
+    const { peak, strikes, after } = await hit(0, [0, 0.36, 0.2], [10, 0, 0]);
+    log(`10 m/s ball into the middle of the left hopper wall: ${strikes} strike, ${(peak * 1000).toFixed(2)} mm under the ball, rebound ${after[0].toFixed(2)} m/s`);
+    expect(strikes).toBe(1);
+    expect(peak).toBeGreaterThan(0.001);
+    expect(peak).toBeLessThan(0.006);
+  });
+
+  test('ringing decays at the log decrement of ζ and is gone in a fraction of a second', async () => {
+    const w = await netWorld();
+    const P = w.panels, w1 = P.modes[0].omega[0];
+    P.state[1] = 0.5;                                // kick the first mode: 0.5 m/s
+    const a = [P.amplitude(0)];
+    for (let s = 0; s < 12; s++) { P.postStep(w.fuel); a.push(P.amplitude(0)); }
+    const per = Math.log(a[1] / a[2]);
+    const delta = per * (2 * Math.PI / (w1 * Math.sqrt(1 - PLATE.zeta ** 2))) * 120;
+    log(`log decrement from the ringing: ${delta.toFixed(3)} (theory ${(2 * Math.PI * PLATE.zeta / Math.sqrt(1 - PLATE.zeta ** 2)).toFixed(3)}); after 0.1 s ${(a[12] / a[0] * 100).toFixed(2)} % of the first`);
+    expect(delta).toBeGreaterThan(0.28);
+    expect(delta).toBeLessThan(0.35);
+    expect(a[12] / a[0]).toBeLessThan(0.02);
+  });
+
+  test('the wall is compliant: the ball leaves slower than off a rigid wall, never faster', async () => {
+    const mid = await hit(0, [0, 0.36, 0.2], [10, 0, 0]);
+    // the same shot into the panel's edge, where it hardly moves: the rigid-wall bounce
+    const edge = await hit(0, [0, 0.36, 0.425], [10, 0, 0]);
+    log(`rebound from the middle of a panel ${mid.after[0].toFixed(2)} m/s (${(mid.peak * 1000).toFixed(2)} mm), from its edge ${edge.after[0].toFixed(2)} m/s (${(edge.peak * 1000).toFixed(2)} mm)`);
+    expect(mid.after[0]).toBeLessThanOrEqual(edge.after[0] + 0.01);
+    expect(mid.after[0]).toBeGreaterThan(1);
+  });
+
+  test('a robot crash into a wall rings the front panel more than a 10 m/s ball does', async () => {
+    const ball = await hit(3, [0, 0.396, 0.35], [0, 0, 10]);
+    // face the wall at x = −8.27 and drive into it from 2.4 m
+    const w = await driverWorld(-5.4, 0, -Math.PI / 2, { clearFuel: true, intakeDown: true });
+    w.panels.clear();
+    let peak = 0, vmax = 0;
+    for (let k = 0; k < 4 * 120; k++) { w.step(input({ mx: -1 })); peak = Math.max(peak, w.panels.amplitude(3)); vmax = Math.max(vmax, w.robot.speed); }
+    log(`front panel: robot crash at ${vmax.toFixed(1)} m/s rings ${(peak * 1000).toFixed(2)} mm; 10 m/s ball deflects it ${(ball.peak * 1000).toFixed(2)} mm`);
+    expect(peak).toBeGreaterThan(ball.peak);
+    expect(peak).toBeLessThan(0.02);
+  });
+
+  test('driving normally does not drift the panels', async () => {
+    const w = await driverWorld(-5, 0, Math.PI / 2, { clearFuel: true });
+    w.panels.clear();
+    let worst = 0;
+    for (let k = 0; k < 10 * 120; k++) {
+      w.step(input({ mx: Math.sin(k / 90) * 0.6, mz: Math.cos(k / 70) * 0.6, turn: 0.4 }));
+      for (let p = 0; p < PANELS.length; p++) worst = Math.max(worst, w.panels.amplitude(p));
+    }
+    for (let k = 0; k < 120; k++) w.step(NO_INPUT);
+    log(`driving: largest panel ringing ${(worst * 1000).toFixed(3)} mm, at rest after: ${(Math.max(...PANELS.map((_, p) => w.panels.amplitude(p))) * 1000).toFixed(4)} mm`);
+    expect(worst).toBeLessThan(0.002);
+    expect(Math.max(...PANELS.map((_, p) => w.panels.amplitude(p)))).toBeLessThan(1e-5);
   });
 });
