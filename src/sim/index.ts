@@ -127,7 +127,7 @@ export class Simulation {
       fetch('field/field-collision.json').then((r) => r.json() as Promise<CollisionIndex>),
     ]);
     this.lod = new Map();
-    lodGltf?.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) this.lod!.set(m.name, m.geometry); });
+    if (lodGltf) this.lod = this.rebaseLod(lodGltf.scene, v.root);
     this.prepareField(gltf.scene);
     this.group.add(gltf.scene);
 
@@ -198,6 +198,40 @@ export class Simulation {
     this.active = true;
     this.setAlliance(alliance);
     this.setMode(mode);
+  }
+
+  /**
+   * The low-detail robot's geometry, expressed in the full-detail meshes' own space. Both files are
+   * meshopt-quantized against each mesh's bounds, and the de-quantizing scale and offset live on the
+   * mesh node; the LOD has no hardware, so its bounds (and node transform) differ. Swapping the bare
+   * geometry under the full-detail node blew parts up (a 2×6×7 cm bracket drew as a 4×10×12 cm chrome
+   * block on the left side). Here each vertex goes through the LOD node, then the inverse full-detail node.
+   */
+  private rebaseLod(lodScene: THREE.Object3D, root: THREE.Object3D) {
+    const full = new Map<string, THREE.Mesh>();
+    root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && !m.userData.ghost && !full.has(m.name)) full.set(m.name, m); });
+    const out = new Map<string, THREE.BufferGeometry>();
+    const p = new THREE.Vector3(), nm = new THREE.Matrix3();
+    lodScene.traverse((o) => {
+      const m = o as THREE.Mesh, h = full.get(o.name);
+      if (!m.isMesh || !h) return;
+      m.updateMatrix(); h.updateMatrix();
+      const T = h.matrix.clone().invert().multiply(m.matrix);
+      const g = m.geometry.clone();
+      const pos = g.getAttribute('position'), nor = g.getAttribute('normal');
+      const P = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) p.fromBufferAttribute(pos, i).applyMatrix4(T).toArray(P, i * 3);
+      g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+      if (nor) {
+        nm.getNormalMatrix(T);
+        const N = new Float32Array(nor.count * 3);
+        for (let i = 0; i < nor.count; i++) p.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize().toArray(N, i * 3);
+        g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+      }
+      g.computeBoundingBox(); g.computeBoundingSphere();
+      out.set(m.name, g);
+    });
+    return out;
   }
 
   /** Field materials and meshes: transparency that never flickers, alliance colors we can swap. */
