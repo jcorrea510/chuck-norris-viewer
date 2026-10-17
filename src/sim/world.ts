@@ -12,7 +12,7 @@ import { Fuel, BS } from './phys/fuel';
 import { Hubs, HUB } from './phys/hub';
 import { Robot } from './phys/robot';
 import { Rng } from './phys/rng';
-import { STEP, FUEL, DRIVE } from './phys/config';
+import { STEP, FUEL } from './phys/config';
 import { EndlessBrain } from './brain';
 import { CROSS_X, CROSS_OUT, BUMP_Z, footprintClearance, OUTLINE_DOWN, type Crossing, type PlanJob, type PlanResult } from './route';
 import { InlinePlanner, type Planner } from './planner';
@@ -168,9 +168,10 @@ export class SimWorld {
     this.lastInput = mode === 'highscore' ? 0 : -Infinity;
     const r = this.robot;
     r.disabled = false;
-    r.shoot = false; r.spinUp = false; r.rollers = 'off';
     r.place(-6.1, mode === 'highscore' ? 0 : 1.0, Math.PI / 2);
-    r.setIntakeNow(true);
+    // the robot powers up: code restarted, intake stowed, turrets pointing backward, flywheels still
+    r.powerCycle();
+    r.autopilot = this.control === 'ai';
     r.preload(this.preloadIdx);
     this.hubs.scoredBy[0] = this.hubs.scoredBy[1] = 0;
     this.hsScore = 0; this.hsShots = 0; this.hsBestRate = 0; this.hsResult = null; this.hsT = 0;
@@ -235,7 +236,7 @@ export class SimWorld {
       if (this.hsT >= HS_SECONDS) {
         // end of the match: the robot is disabled; fuel in the air still counts for 3 s
         this.hsPhase = 'post'; this.hsT = 0;
-        r.disabled = true; r.manual = null; r.shoot = false; r.spinUp = false; r.rollers = 'off';
+        r.disabled = true; r.releaseControls();
         this.onHsPhase?.('post');
       }
     } else if (this.hsPhase === 'post') {
@@ -262,35 +263,24 @@ export class SimWorld {
     this.control = 'driver';
     const r = this.robot;
     r.navigate(null);
-    r.spinUp = false;
-    r.shoot = false;
-    r.rollers = 'off';
+    r.autopilot = false;
+    r.releaseControls();
     this.onControl?.('driver');
   }
 
   resumeAI() {
     if (this.control === 'ai' || this.mode !== 'free') return;
     this.control = 'ai';
-    this.robot.manual = null;
-    this.robot.shoot = false;
+    this.robot.autopilot = true;
+    this.robot.releaseControls();
     this.lastInput = -Infinity;
     this.brain.resume();
     this.onControl?.('ai');
   }
 
+  /** The driver's controller goes straight to the robot code, which shapes the sticks itself (DriveCommands.joystickDrive). */
   private applyDriver(input: DriverInput) {
-    const r = this.robot;
-    // placeholder until the team-code port: deadband, full speed, intake/shoot only
-    const m = Math.hypot(input.mx, input.mz);
-    const k = m < DRIVE.deadband ? 0 : (m - DRIVE.deadband) / (1 - DRIVE.deadband) / m;
-    const t = Math.abs(input.turn) < DRIVE.deadband ? 0 : input.turn;
-    r.manual = { vx: input.mx * k * DRIVE.vmax, vz: input.mz * k * DRIVE.vmax, w: -t * DRIVE.wmax };
-    if (input.intake) { r.intakeDown = true; r.rollers = 'in'; }
-    else if (input.reverseIntake) r.rollers = 'out';
-    else r.rollers = 'off';
-    if (input.retract) r.intakeDown = false;
-    r.shoot = input.shoot;
-    r.spinUp = input.shoot;
+    this.robot.setInput(input);
   }
 
   get resumeIn() { return this.control === 'driver' && this.mode === 'free' ? Math.max(0, HANDBACK_SECONDS - (this.clock - this.lastInput)) : null; }
@@ -368,8 +358,8 @@ export class SimWorld {
   status(loading = false): SimStatus {
     const r = this.robot;
     return {
-      mode: this.mode, scored: this.scored, rate: this.rate, shooting: r.shoot && r.stored > 0, ferry: r.ferry,
-      outOfRange: r.shoot && r.outOfRange, control: this.control, resumeIn: this.resumeIn,
+      mode: this.mode, scored: this.scored, rate: this.rate, shooting: r.shooting, ferry: r.ferry,
+      outOfRange: false, control: this.control, resumeIn: this.resumeIn,
       intakeDown: r.intakeDown, rollers: r.rollers === 'in', stored: r.stored, capacity: r.capacity,
       hs: this.mode === 'highscore' ? { phase: this.hsPhase, t: this.hsPhase === 'play' ? Math.max(0, HS_SECONDS - this.hsT) : this.hsPhase === 'countdown' ? Math.max(0, HS_COUNTDOWN - this.hsT) : 0, result: this.hsResult } : null,
       loading,

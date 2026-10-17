@@ -4,12 +4,14 @@
 // planner (a Web Worker in the browser): while a new route computes, the robot keeps following the
 // old one, so planning never stalls it. A watchdog notices when it stops making progress and
 // escalates: a new target, backing out, a fresh spot on the field, and finally a reset.
+// It drives through the same robot code as a human: it works the trigger (LT), the shoot trigger (RT)
+// and RB, and the path follower turns its desired motion into stick positions.
 import type { SimWorld } from './world';
 import { CLEAR, footprintClearance, OUTLINE_DOWN, OUTLINE_UP } from './route';
 import { BS } from './phys/fuel';
 import { DRIVE } from './phys/config';
 
-const VMAX = DRIVE.vmax;
+const VMAX = DRIVE.speedAt12V;
 
 export class EndlessBrain {
   phase = 'Endless';
@@ -27,6 +29,10 @@ export class EndlessBrain {
   private stowUntil = 0;
   private blockedTimes: number[] = [];
   private forced = false;
+  /** while > 0 the trigger is released, so the next press extends the intake again (IntakeCommand extends on its first press only) */
+  private ltOff = 0;
+  /** a deploy press is under way: wait for the code to see it before judging that it failed */
+  private deployWait = 0;
   /** a plan request is out; its answer is ignored if a newer one was sent */
   private ticket = 0;
 
@@ -37,13 +43,19 @@ export class EndlessBrain {
   resume() {
     this.idle = false;
     const r = this.sim.robot;
-    r.manual = null;
-    r.intakeDown = true;
-    r.rollers = 'in';
+    r.autopilot = true;
+    r.releaseControls();
     this.lastGain = this.clock;
     this.escalation = 0;
     this.progress = { x: r.x, z: r.z, t: 0, strikes: 0 };
     if (r.load >= 8) this.toScore(); else this.toCollect();
+  }
+
+  /** the robot is collecting and the fuel it is after is within reach of the rollers' pull */
+  private collecting() {
+    const r = this.sim.robot, f = this.sim.fuel;
+    if (this.mode !== 'collect' || r.load >= r.capacity || this.target < 0) return false;
+    return Math.hypot(f.pos[this.target * 3] - r.x, f.pos[this.target * 3 + 2] - r.z) < 2.4;
   }
 
   private available(i: number) {
@@ -56,12 +68,16 @@ export class EndlessBrain {
     this.clock += dt;
     if (this.idle) { this.idle = false; this.resume(); }
     this.replan -= dt;
-    r.rollers = 'in';
-    if (!r.intakeDown && this.clock > this.stowUntil && footprintClearance(sim.field, r.x, r.z, r.th, OUTLINE_DOWN) > 0.03) r.intakeDown = true;
-    else if (this.clock > this.stowUntil + 6) r.intakeDown = true;
+    this.ltOff = Math.max(0, this.ltOff - dt);
+    this.deployWait = Math.max(0, this.deployWait - dt);
+    // the intake comes down (LT) when it is stowed and there is room, or after a stuck recovery has waited long enough
+    const needDeploy = !r.intakeDown && ((this.clock > this.stowUntil && footprintClearance(sim.field, r.x, r.z, r.th, OUTLINE_DOWN) > 0.03) || this.clock > this.stowUntil + 6);
+    if (needDeploy && r.input.intake && this.ltOff <= 0 && this.deployWait <= 0) this.ltOff = 0.06;
+    // the rollers run (LT held) only near the fuel it is after: holding LT caps the robot at 2.5 m/s
+    r.input.intake = this.ltOff <= 0 && (needDeploy || this.collecting());
+    if (needDeploy && r.input.intake) this.deployWait = 0.15;
     const zone = sim.canShoot();
-    r.shoot = zone && r.stored > 0;
-    r.spinUp = r.shoot || (this.mode === 'score' && r.x < -3);
+    r.input.shoot = zone && r.stored > 0;
     if (r.load > this.lastLoad || sim.hubs.scoredBy[0] > this.lastScored) { this.lastGain = this.clock; this.escalation = 0; }
     this.lastLoad = r.load; this.lastScored = sim.hubs.scoredBy[0];
 
@@ -72,7 +88,7 @@ export class EndlessBrain {
         if (!zone && this.replan <= 0) this.toScore();
       }
     } else {
-      if (r.load >= r.capacity - 2) { this.toScore(); return; }
+      if (r.load >= Math.min(r.capacity - 2, 24)) { this.toScore(); return; }
       const t = this.target;
       const gone = t < 0 || !this.available(t);
       if (gone && r.load >= 12) { this.toScore(); return; }
@@ -207,7 +223,7 @@ export class EndlessBrain {
         const c = Math.min(footprintClearance(sim.field, r.x + dx * 0.3, r.z + dz * 0.3, r.th, OUTLINE_UP), footprintClearance(sim.field, r.x + dx * 0.7, r.z + dz * 0.7, r.th, OUTLINE_UP));
         if (c > bestC) { bestC = c; best = [dx, dz]; }
       }
-      if (r.load <= 32) { r.intakeDown = false; this.stowUntil = this.clock + 2.5; }
+      if (r.load <= 32) { r.pulse('retract'); this.stowUntil = this.clock + 2.5; }
       const step = p.strikes >= 4 ? 1.2 : 0.7;
       this.ticket++;
       r.navigate({ path: [[r.x, r.z], [r.x + best[0] * step, r.z + best[1] * step]], speed: 1.6, heading: r.th + (p.strikes >= 4 ? (sim.rng.next() - 0.5) * 1.5 : 0), stopAtEnd: true });

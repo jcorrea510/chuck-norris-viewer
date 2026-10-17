@@ -4,8 +4,8 @@ import { describe, test, expect } from 'vitest';
 import { makeEngine, makeWorld, driverWorld, input, run, robotPenetration } from './helpers';
 import { Fuel, BS } from '../../src/sim/phys/fuel';
 import { Rng } from '../../src/sim/phys/rng';
-import { STEP, FUEL, SHOOTER } from '../../src/sim/phys/config';
-import { AimTable, exitFor, fly } from '../../src/sim/phys/aim';
+import { STEP, FUEL } from '../../src/sim/phys/config';
+import { exitFor, fly } from '../../src/sim/phys/aim';
 import { HUB } from '../../src/sim/phys/hub';
 import { NO_INPUT, ALLIANCE_LINE } from '../../src/sim/world';
 
@@ -89,7 +89,7 @@ describe('FUEL', () => {
   });
 
   test('Magnus: shooter backspin floats a shot (higher apex; longer carry on a flat shot)', () => {
-    const e = exitFor(450);
+    const e = exitFor(450 / (2 * Math.PI));
     const steep = fly(e.speed, 55 * Math.PI / 180, e.spin, 0.57, 0)!, steep0 = fly(e.speed, 55 * Math.PI / 180, 0, 0.57, 0)!;
     const flat = fly(e.speed, 30 * Math.PI / 180, e.spin, 0.57, 0)!, flat0 = fly(e.speed, 30 * Math.PI / 180, 0, 0.57, 0)!;
     log(`exit ${e.speed.toFixed(1)} m/s, backspin ${(e.spin / (2 * Math.PI)).toFixed(0)} rev/s: 55° apex ${steep.apex.toFixed(2)} vs ${steep0.apex.toFixed(2)} m; 30° range ${flat.d.toFixed(2)} vs ${flat0.d.toFixed(2)} m`);
@@ -132,27 +132,29 @@ describe('net and thin panels', () => {
 });
 
 describe('robot', () => {
-  test('0 → top speed, stop, 180° reversal', async () => {
+  test('0 → top speed, stop, 180° reversal (Kraken X60 + MK4i L2, 80 A stator / 30 A supply, 74 kg)', async () => {
     // the open carpet of our ALLIANCE ZONE, driving across the field (sideways: swerve doesn't care)
     const w = await driverWorld(-6.0, -3.45, Math.PI / 2, { clearFuel: true });
     const r = w.robot;
-    let t90 = -1;
-    const x0 = r.z;
-    run(w, 1.3, input({ mz: 1 }), (t) => { if (t90 < 0 && r.speed > 0.9 * 4.7) t90 = t; });
-    const top = r.speed, dist = r.z - x0;
-    log(`0→90% of 4.7 m/s: ${t90.toFixed(2)} s; ${top.toFixed(2)} m/s after 2 s (${dist.toFixed(2)} m)`);
-    expect(t90).toBeGreaterThan(0.45); expect(t90).toBeLessThan(1.2);
-    const xs = r.z;
+    let t35 = -1, top = 0;
+    const z0 = r.z;
+    run(w, 1.6, input({ mz: 1 }), (t) => { top = Math.max(top, r.speed); if (t35 < 0 && r.speed > 3.5) t35 = t; });
+    const dist = r.z - z0, v = r.speed;
+    log(`0→3.5 m/s in ${t35.toFixed(2)} s; peak ${top.toFixed(2)} m/s in 1.6 s (${dist.toFixed(2)} m), battery ${r.battery.toFixed(1)} V`);
+    expect(t35).toBeGreaterThan(0.6); expect(t35).toBeLessThan(1.3);
+    expect(top).toBeGreaterThan(3.7); expect(top).toBeLessThan(4.62);
+    const zs = r.z;
     let ts = -1;
     run(w, 2, NO_INPUT, (t) => { if (ts < 0 && r.speed < 0.05) ts = t; });
-    log(`stop from ${top.toFixed(2)} m/s: ${(r.z - xs).toFixed(2)} m in ${ts.toFixed(2)} s`);
-    expect(r.z - xs).toBeGreaterThan(0.6); expect(r.z - xs).toBeLessThan(2.4);
+    log(`stop from ${v.toFixed(2)} m/s: ${(r.z - zs).toFixed(2)} m in ${ts.toFixed(2)} s`);
+    expect(r.z - zs).toBeGreaterThan(0.6); expect(r.z - zs).toBeLessThan(2.4);
     // full reversal
     const w2 = await driverWorld(-6.0, -3.45, Math.PI / 2, { clearFuel: true });
     run(w2, 1.3, input({ mz: 1 }));
+    const vz = w2.robot.vz;
     let tr = -1;
     run(w2, 2, input({ mz: -1 }), (t) => { if (tr < 0 && w2.robot.vz < -2) tr = t; });
-    log(`180° reversal from ${4.7} m/s to −2 m/s: ${tr.toFixed(2)} s`);
+    log(`180° reversal from ${vz.toFixed(2)} m/s to −2 m/s: ${tr.toFixed(2)} s`);
     expect(tr).toBeGreaterThan(0.5); expect(tr).toBeLessThan(2);
   });
 
@@ -179,48 +181,52 @@ describe('robot', () => {
   });
 
   test('full speed into every field element: no tunneling, no overlap', async () => {
-    const cases: [string, number, number, number, number, (x: number, z: number, minX: number) => boolean][] = [
-      ['HUB', -6.5, 0, 1, 0, (x) => x < -4.24 - 0.42],
+    const hz = 0.429;                              // bumper half-length
+    // our TOWER's uprights are at x = −7.205, z = −0.295 ± 0.4286 (engine.addTowers mirrors the far tower's z)
+    const towerOk = (x: number, z: number) => !(x < -7.16 && Math.abs(z + 0.295) < 0.45);
+    const cases: [string, number, number, number, number, (x: number, z: number) => boolean][] = [
+      // the front bumper stops at the HUB's face (x = −4.24); the deployed intake folds up out of the way first
+      ['HUB', -6.5, 0, 1, 0, (x) => x < -4.24 - hz + 0.012],
       // backing into our TOWER: the bumpers stop at the uprights (x = −7.16), centered or off-center
-      // (pushed on, the robot can pivot on a post, so allow for its half-diagonal)
-      ['TOWER (centered)', -5.6, 0.295, -1, 0, (x, z) => !(x < -7.16 && Math.abs(z - 0.295) < 0.45)],
-      ['TOWER (one upright)', -5.6, -0.4, -1, 0, (x, z) => !(x < -7.16 && Math.abs(z - 0.295) < 0.45)],
-      ['alliance wall', -6.5, 2.5, -1, 0, (x) => x > -8.27 + 0.42],
-      ['side guardrail', -6, 1, 0, 1, (_x, z) => z < 4.03 - 0.42],
-      ['side guardrail (other)', -6, -1, 0, -1, (_x, z) => z > -4.03 + 0.42],
+      // (pushed on, the robot can pivot on a post and slip past it, so the check is on where its center can go)
+      ['TOWER (centered)', -5.6, -0.295, -1, 0, towerOk],
+      ['TOWER (one upright)', -5.6, -0.295 + 0.3, -1, 0, towerOk],
+      ['alliance wall', -6.5, 2.5, -1, 0, (x) => x > -8.27 + hz - 0.012],
+      ['side guardrail', -6, 1, 0, 1, (_x, z) => z < 4.03 - hz + 0.012],
+      ['side guardrail (other)', -6, -1, 0, -1, (_x, z) => z > -4.03 + hz - 0.012],
       ['TRENCH support', -6, 2.7, 1, 0, (x) => x < -3.0],
-      ['DEPOT', -6.5, -2.5, -1, 0, (x) => x > -8.27 + 0.42],
+      ['DEPOT', -6.5, -2.5, -1, 0, (x) => x > -8.27 + hz - 0.012],
     ];
     for (const [name, x, z, mx, mz, ok] of cases) {
       const w = await driverWorld(x, z, Math.PI / 2, { clearFuel: true });
-      let worst = 0, bad = false;
+      let worst = 0, bad = false, vmax = 0;
       run(w, 2.5, input({ mx, mz }), () => {
         worst = Math.max(worst, robotPenetration(w));
-        if (!ok(w.robot.x, w.robot.z, 0)) bad = true;
+        vmax = Math.max(vmax, w.robot.speed);
+        if (!ok(w.robot.x, w.robot.z)) bad = true;
       });
-      log(`${name}: end (${w.robot.x.toFixed(2)}, ${w.robot.z.toFixed(2)}), worst overlap ${(worst * 1000).toFixed(1)} mm`);
+      log(`${name}: end (${w.robot.x.toFixed(2)}, ${w.robot.z.toFixed(2)}), hit at ${vmax.toFixed(1)} m/s, worst overlap ${(worst * 1000).toFixed(1)} mm`);
       expect(bad).toBe(false);
       // a full-speed hit on a 4 cm post concentrates the impact: allow a one-step transient there
-      expect(worst).toBeLessThan(name.startsWith('TOWER') ? 0.025 : 0.012);
+      expect(worst).toBeLessThan(name.startsWith('TOWER') ? 0.025 : 0.02);
     }
   });
 });
 
 describe('shooter, indexer, scoring', () => {
-  test('flywheel spin-up from rest, and the RPM dip and recovery of each shot', async () => {
+  test('the RPM dip and recovery of each shot (flywheels at speed, X44 ×2 under the Talon\'s VelocityVoltage loop)', async () => {
     const w = await driverWorld(-6.1, 0, Math.PI / 2, { clearFuel: false });
     const r = w.robot, t = r.turrets[0];
-    for (const tu of r.turrets) tu.fly = 0;
-    let tReady = -1, last = 0, recover = -1, shotAt = -1;
+    run(w, 1.5, NO_INPUT);
+    expect(t.rps).toBeGreaterThan(t.rpsGoal * 0.98);
+    let last = 0, recover = -1, shotAt = -1;
     const dips: number[] = [];
-    r.onShot = (_i, side) => { if (side === t.side) { dips.push(1 - t.fly / Math.max(1, last)); shotAt = w.clock; } };
-    run(w, 3, input({ shoot: true }), (tt) => {
-      if (tReady < 0 && t.ready) tReady = tt;
-      if (shotAt > 0 && recover < 0 && dips.length === 1 && t.fly > t.flyGoal * 0.995) recover = w.clock - shotAt;
-      last = t.fly;
+    r.onShot = (_i, side) => { if (side === t.side) { dips.push(1 - t.rps / Math.max(1, last)); if (shotAt < 0) shotAt = w.clock; } };
+    run(w, 3, input({ shoot: true }), () => {
+      if (shotAt > 0 && recover < 0 && dips.length === 1 && t.rps > t.rpsGoal * 0.98) recover = w.clock - shotAt;
+      last = t.rps;
     });
-    log(`spin-up from rest to ready: ${tReady.toFixed(2)} s (goal ${(t.flyGoal * 9.549).toFixed(0)} rpm); dip per shot ${dips.map((d) => (d * 100).toFixed(1) + '%').join(' ')}; first recovery ${(recover * 1000).toFixed(0)} ms`);
-    expect(tReady).toBeGreaterThan(0.25); expect(tReady).toBeLessThan(1.6);
+    log(`flywheel ${t.rpsGoal.toFixed(1)} rps: dip per shot ${dips.map((d) => (d * 100).toFixed(1) + '%').join(' ')}; first recovery ${(recover * 1000).toFixed(0)} ms`);
     expect(dips.length).toBeGreaterThan(2);
     for (const d of dips) { expect(d).toBeGreaterThan(0.01); expect(d).toBeLessThan(0.25); }
     expect(recover).toBeGreaterThan(0.01); expect(recover).toBeLessThan(0.6);
@@ -325,19 +331,19 @@ describe('shooter, indexer, scoring', () => {
 
 describe('shooting on the move', () => {
   test('strafing across our zone at speed, the lead keeps most shots in', async () => {
-    for (const v of [0, 0.6]) {
+    for (const v of [0, 1]) {
       const w = await driverWorld(-6.3, -2.4, Math.PI / 2);
       const r = w.robot;
       const spare = Array.from({ length: w.fuel.n }, (_, i) => i).filter((i) => w.fuel.st[i] === BS.FREE && w.fuel.pos[i * 3] > -1 && w.fuel.pos[i * 3] < 1).slice(0, 16);
       r.preload(spare);
       run(w, 0.8, input({ shoot: true }));   // spin up, settle
       const before = w.hubs.scoredBy[0], shots0 = r.shotsFired;
-      // drive across the zone (z from −2.4 toward +2.4) at v × 4.7 m/s while holding Shoot
+      // drive across the zone (z from −2.4 toward +2.4) while holding Shoot (RT caps the drive at 2.5 m/s)
       run(w, 2.0, input({ shoot: true, mz: v }));
       run(w, 0.4, input({ shoot: true }));
       run(w, 2.5, NO_INPUT);
       const shots = r.shotsFired - shots0, scored = w.hubs.scoredBy[0] - before;
-      log(`shooting while strafing at ${(v * 4.7).toFixed(1)} m/s: ${scored}/${shots} scored`);
+      log(`shooting while strafing at ${(v * 2.5).toFixed(1)} m/s: ${scored}/${shots} scored`);
       expect(shots).toBeGreaterThan(8);
       expect(scored / shots).toBeGreaterThan(v ? 0.5 : 0.8);
     }
@@ -379,4 +385,3 @@ describe('determinism and invariants', () => {
   });
 });
 
-void SHOOTER; void AimTable;

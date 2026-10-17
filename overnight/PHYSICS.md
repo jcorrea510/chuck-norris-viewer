@@ -83,3 +83,27 @@ Confidence: **High** = from the manual, a datasheet or the CAD. **Med** = a publ
 | Turret | ±180°, 9 rad/s, 45 rad/s², ω_n 22, ζ 0.85; feeds only within 2.5° | **EDIT** | Low | — |
 | Aim tables | distance → (ω, hood, time of flight), solved through the same drag + Magnus model; lead = robot velocity × time of flight | `phys/aim.ts` | High | "from our zone most shots score" (30/30) |
 | Ferry | outside our ALLIANCE ZONE (x > −4.24 m) the turrets lob to (−6.3 m, robot z × 0.8) | manual zones; landing spot is a choice | Med | "ferried FUEL lands in our zone" (8/8) |
+
+## Team code (Rebuilt26, branch insert-name-here)
+
+The robot runs `src/sim/phys/teamcode.ts` (a port at 50 Hz) over the hardware in `robot.ts`, `mechanisms.ts`, `motors.ts`. Every constant lives in `config.ts` with its Java name; the main ones:
+
+| Value | Number | Java source |
+|---|---|---|
+| Mass, yaw MOI, wheel COF | 74.088 kg, 6.883 kg·m², 1.2 | `Drive.java` ROBOT_MASS_KG, ROBOT_MOI, WHEEL_COF |
+| Drive | MK4i L2 6.746:1, wheel 1.94 in, 4.58 m/s at 12 V, kP 0.1 kS 0.2225 kV 0.84381, stator 80 A, supply 30 A | `TunerConstants` |
+| Steer | 21.43:1, kP 100 kD 0.5 kS 0.1, 40 A / 20 A, J 0.01 | `TunerConstants` |
+| Modules | ±10.875 in × ±11.375 in | `TunerConstants` |
+| Joystick | deadband 0.1, squared; 2.5 m/s while intaking/feeding | `DriveCommands`, `Constants.Drive.reducedSpeed` |
+| Face HUB | PID 5/0.4, 8 rad/s, 20 rad/s², back to the HUB | `DriveCommands.joystickDriveAtAngle` |
+| Turret | CANcoder 10 rot/rot, kP 8 kD 0.35 V/rot, 60/25 A, limits L [−380, 1] R [−365, 10], soft ±10°, start −180° | `Constants.Turret` |
+| Flywheel | kP 1.2 kD 0.25 kV 0.0925, ramp 0.1 s, 60 A, r 2 in | `Constants.Turret`, `SimConstants` |
+| Hood | 13…29.85°, servo 500…2500 µs, left inverted | `Hood.java` |
+| Shot table, lookahead | 17 rows, 10 iterations, +0.05 s | `shot_table.json`, `GetAdjustedShot` |
+| Targets | HUB (4.6256, 4.0346), ferry (hub.x−3, hub.y±2) in the neutral zone x 5.18…11.30 | `FieldConstants` |
+| Intake | pivot 0↔12.75 rot, MM 60 rps / 120 rps², kP 15 kS 0.5 kV 0.12 kG 1; rollers 70 + 3v rps | `Constants.Intake`, `IntakeCommand` |
+| Indexer, hotdog | 55 and 70 rps, kV 0.1285 / 0.11 | `Constants.Indexer` |
+
+Estimates (EDIT): X44/X60 rotor inertia, turret inertia 0.05 and motor ratio 20:1, flywheel inertia 0.004, intake mass 4.5 kg and 62.9:1, hood servo travel 0.6 s, indexer belt and floor speeds, exit fit (slip 0.91, elevation 82° − hood). The older sections above predate this port where they list drive gear 6.12, 61 kg, 4.7 m/s, slew limits, the aim tables, the readiness gate, the old turret servo and the old ferry rule: all are replaced by the table above.
+
+Tests: `tests/phys/teamcode.test.ts` (table, wrapping, buttons, ferry, intake, compliance, feed rate) and `realism.test.ts`.
