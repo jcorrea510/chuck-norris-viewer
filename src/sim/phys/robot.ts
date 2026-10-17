@@ -739,7 +739,7 @@ export class Robot {
         const toward = Math.abs(L[0]) > 0.13 ? -Math.sign(L[0]) : L[0] > 0.01 ? 1 : L[0] < -0.01 ? -1 : this.turrets[0].lane.length <= this.turrets[1].lane.length ? 1 : -1;
         const want = this.velToWorld(toward * 0.3 * (L[2] < 0.14 ? 1 : 0) * Math.sign(floor), 0, -floor);
         const m = f.mass[i];
-        const k = 6 * m * STEP;
+        const k = (L[2] > 0.3 ? 25 : 6) * m * STEP;
         b.applyImpulse({ x: (want[0] + pv[0] - b.linvel().x) * k, y: 0, z: (want[2] + pv[2] - b.linvel().z) * k }, true);
       }
     }

@@ -88,7 +88,7 @@ export class EndlessBrain {
         if (!zone && this.replan <= 0) this.toScore();
       }
     } else {
-      if (r.load >= r.capacity - 2) { this.toScore(); return; }
+      if (r.load >= Math.min(r.capacity - 2, 24)) { this.toScore(); return; }
       const t = this.target;
       const gone = t < 0 || !this.available(t);
       if (gone && r.load >= 12) { this.toScore(); return; }

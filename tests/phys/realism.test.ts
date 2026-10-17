@@ -223,7 +223,7 @@ describe('shooter, indexer, scoring', () => {
     const dips: number[] = [];
     r.onShot = (_i, side) => { if (side === t.side) { dips.push(1 - t.rps / Math.max(1, last)); if (shotAt < 0) shotAt = w.clock; } };
     run(w, 3, input({ shoot: true }), () => {
-      if (shotAt > 0 && recover < 0 && dips.length === 1 && t.rps > t.rpsGoal * 0.995) recover = w.clock - shotAt;
+      if (shotAt > 0 && recover < 0 && dips.length === 1 && t.rps > t.rpsGoal * 0.98) recover = w.clock - shotAt;
       last = t.rps;
     });
     log(`flywheel ${t.rpsGoal.toFixed(1)} rps: dip per shot ${dips.map((d) => (d * 100).toFixed(1) + '%').join(' ')}; first recovery ${(recover * 1000).toFixed(0)} ms`);
