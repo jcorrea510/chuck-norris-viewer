@@ -34,8 +34,8 @@ const POSES = {
   'left-mid': [[1.2, 0.5, 0.0], [0.25, 0.25, 0.0]],
   top: [[0, 1.8, 0.01], [0, 0.3, 0]],
   'turret-close': [[0.95, 0.75, 0.55], [0.2, 0.45, -0.3]],
-  'hood-lo': [[0.95, 0.75, 0.55], [0.2, 0.45, -0.3]],
-  'hood-hi': [[0.95, 0.75, 0.55], [0.2, 0.45, -0.3]],
+  'hood-lo': [[0.9, 0.8, 0.6], [0.2, 0.45, 0.0]],
+  'hood-hi': [[0.9, 0.8, 0.6], [0.2, 0.45, 0.0]],
 };
 const hideArg = process.argv.find((a) => a.startsWith('--hide='));
 if (hideArg) await page.evaluate((ids) => { const v = window.__viewer.viewer; for (const id of ids) v.setHidden(v.subsystemPids(id), true); }, hideArg.slice(7).split(','));
@@ -68,6 +68,7 @@ for (const s of shots) {
       v.controls.setLookAt(p.x, p.y, p.z, q.x, q.y, q.z, false);
       v.invalidate(true);
     }, [cad, POSES[s]]);
+    if (s.startsWith('hood-')) await page.evaluate((deg) => { const v = window.__viewer.viewer; for (const side of ['left', 'right']) { v.setMechanismNow(`hood-${side}`, deg - 17.2); v.setMechanismNow(`hoodgear-${side}`, -(deg - 17.2) * 16); } v.syncPose(); v.invalidate(true); }, s === 'hood-lo' ? 13 : 29.85);
   } else {
     await page.evaluate((id) => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView(id); for (let i = 0; i < 120; i++) sim.frame(1 / 60); sim.paused = true; window.__viewer.viewer.invalidate(true); }, s);
   }

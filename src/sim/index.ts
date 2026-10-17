@@ -21,6 +21,7 @@ import { DriverControls, type RawInput } from './input';
 import { Drivepad } from './drivepad';
 import { SimAudio } from './audio';
 import { DebugOverlay } from './debug';
+import { wrapDeg, hoodMechDeg, gearMechDeg, FLY_VIS_DIV } from './hood';
 
 export type { SimMode, SimStatus } from './world';
 export type SimView = 'driver' | 'follow' | 'overhead';
@@ -86,6 +87,8 @@ export class Simulation {
   private camFov = new Spring1();
   private flip = new THREE.Matrix4();
   private audio = new SimAudio();
+  /** visual flywheel angles (rad), one per turret */
+  private flyAng: number[] = [];
   private debug: DebugOverlay | null = null;
   private lastRaw: RawInput | null = null;
   private frameMs = 0;
@@ -428,6 +431,7 @@ export class Simulation {
     this.backend.tick(dt, input, !!this.debug && this.debugN++ % 10 === 0);
     const fr = this.f, r = fr.robot;
     this.pad?.setIntake(this.controls.touch.intake);
+    r.turrets.forEach((t, i) => { this.flyAng[i] = ((this.flyAng[i] ?? 0) + (t.fly / FLY_VIS_DIV) * dt) % (2 * Math.PI); });
     this.present(fr.alpha);
     this.writeFuel(fr.alpha);
     this.updateNets();
@@ -466,7 +470,13 @@ export class Simulation {
     st.updateMatrix();
     st.matrixWorld.copy(st.matrix);
     v.setMechanismNow('intake', r.intakeAngle);
-    for (const t of r.turrets) v.setMechanismNow(t.id, t.a / DEG);
+    r.turrets.forEach((t, i) => {
+      const side = t.id.slice('turret-'.length);
+      v.setMechanismNow(t.id, wrapDeg(t.a));
+      v.setMechanismNow(`hood-${side}`, hoodMechDeg(t.hoodDeg));
+      v.setMechanismNow(`hoodgear-${side}`, gearMechDeg(t.hoodDeg));
+      v.setMechanismNow(`flywheel-${side}`, wrapDeg(this.flyAng[i] ?? 0));
+    });
     this.moduleMech.forEach((m, i) => {
       let a = r.modules[i].steer - m.h0;
       a = Math.atan2(Math.sin(a), Math.cos(a));
