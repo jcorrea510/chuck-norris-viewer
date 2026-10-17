@@ -9,6 +9,7 @@ import { buildStandIn } from './standin';
 import { studioScene } from './studio';
 import { PartIndex, type PartsFile } from './parts';
 import { subsystemById, robot as robotConfig } from './config';
+import { buildWiring } from './wiring';
 
 CameraControls.install({
   THREE: {
@@ -247,6 +248,7 @@ export class Viewer {
       this.source = 'model';
       const pf = await partsPromise;
       if (pf) this.parts = new PartIndex(pf);
+      if (this.parts) this.addWiring(model);
     } catch (err) {
       console.info('[viewer] Model not available, using the stand-in robot.', err);
       model = buildStandIn();
@@ -255,6 +257,21 @@ export class Viewer {
     }
     this.state = new PartState(this.parts?.count ?? 0);
     this.setupRobot(model);
+  }
+
+  /** The procedural wiring joins the electrical subsystem as two merged meshes (see wiring.ts), so it ghosts, hides, explodes and picks with it. */
+  private addWiring(model: THREE.Object3D) {
+    let electrical: THREE.Object3D | null = null;
+    model.traverse((o) => { if (!electrical && !(o as THREE.Mesh).isMesh && o.userData.subsystem === 'electrical' && !o.userData.mechanism) electrical = o; });
+    if (!electrical) return;
+    const w = buildWiring(this.parts);
+    for (const [geo, finish, name] of [[w.insulation, 'plastic', 'wiring'], [w.sleeving, 'fabric', 'wiringsleeve']] as const) {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+      m.material.userData.finish = finish;
+      m.name = name;
+      m.userData.wiring = true;
+      (electrical as THREE.Object3D).add(m);
+    }
   }
 
   private setupRobot(model: THREE.Object3D) {
@@ -288,7 +305,7 @@ export class Viewer {
         src?.dispose();
         m.material = solid.get(finish)!;
         m.userData.subsystem = id;
-        m.castShadow = finish !== 'polycarb';
+        m.castShadow = finish !== 'polycarb' && !m.userData.wiring;
         m.receiveShadow = true;
         m.customDepthMaterial = depthMat;
         if (finish === 'polycarb') m.renderOrder = 1;
@@ -473,6 +490,7 @@ export class Viewer {
    */
   setSimRendering(lod: Map<string, THREE.BufferGeometry> | null, fov: number | null) {
     for (const m of this.meshes) {
+      if (m.userData.wiring) { m.visible = !lod; continue; } // the harness is under the pan: not worth drawing in the simulation
       if (lod) {
         const g = lod.get(m.name);
         // the bumpers keep full detail: decimating them mangled the "3950" lettering (and they're
