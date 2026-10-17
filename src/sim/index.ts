@@ -409,8 +409,8 @@ export class Simulation {
   }
 
   setView(view: SimView) { this.view = view; }
-  /** where the camera rig is heading (its spring, before camera-controls), for tests */
-  cameraRig() { return this.camPos.v.clone(); }
+  /** where the camera was last drawn (internal field frame, before the alliance flip), for tests */
+  cameraRig() { return this.final.p.clone(); }
   nextView() { const i = SIM_VIEWS.findIndex((x) => x.id === this.view); this.setView(SIM_VIEWS[(i + 1) % SIM_VIEWS.length].id); }
   handBack() { this.backend.resumeAI(); }
   setTouchControls(on: boolean) { this.touchControls = on; }
