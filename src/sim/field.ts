@@ -24,8 +24,12 @@ export class FieldGrid {
       if (raw[i] === 255) this.solid[i] = 1;
       else this.floorH[i] = raw[i] / 1000;
     }
-    // The HUB is a closed structure at robot height even where its internal ramps sit higher than the rays.
-    for (const h of hubs) this.fillSolid(h.min[0], h.min[2], h.max[0], h.max[2]);
+    // The HUB is a closed 47 in square (±0.6 m) at robot height; its net frame (x/z beyond that) stands on the
+    // HUB's top, 1.27 m up, so a robot passes under it.
+    for (const h of hubs) this.fillSolid(h.center[0] - 0.6, h.center[2] - 0.6, h.center[0] + 0.6, h.center[2] + 0.6);
+    // The TOWERs (uprights 0.1 m deep at x = ±7.205, rungs from 0.69 m up reaching past them to z = center ± 0.6): the
+    // downward rays that built the grid start at 0.45 m and miss them, but a stowed robot (0.728 m) can't pass the rungs.
+    for (const s of [-1, 1]) this.fillSolid(s * 7.205 - 0.06, -s * 0.289 - 0.6, s * 7.205 + 0.06, -s * 0.289 + 0.6);
     this.dist = this.distanceField(this.solid);
     const free = new Uint8Array(n);
     for (let i = 0; i < n; i++) free[i] = this.solid[i] ? 0 : 1;

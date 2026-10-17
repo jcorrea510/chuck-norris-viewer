@@ -104,21 +104,22 @@ export class Engine {
   /**
    * Each TOWER's UPRIGHTS and RUNGS as solid steel (manual 5.8: 72.1 in tall, 1.5 × 3.5 in box
    * uprights 32.25 in apart; 1.66 in OD rungs at 27, 45 and 63 in, reaching 5.875 in past each
-   * upright), placed where the field model has them. As thin triangle shells a robot could drive
-   * straight through them.
+   * upright), placed where the field model has them: our (−x) tower's center line is at z = +0.289
+   * (measured on the uprights at z = −0.140 and +0.717), the other's at z = −0.289. As thin triangle
+   * shells a robot could drive straight through them.
    */
   addTowers() {
     const R = this.R, IN = 0.0254;
-    const x = 7.205, zc = 0.295;                       // our tower (internal −x); the other is rotated 180°
+    const x = 7.205, zc = 0.289;                       // |x| and |z| of the tower center lines; the two towers are 180° rotations of each other
     const half = (32.25 / 2 + 1.5 / 2) * IN;          // upright centers from the tower's center line
     const rungHalf = (32.25 / 2 + 1.5 + 5.875) * IN;
     for (const s of [-1, 1]) {
       for (const dz of [-half, half]) {
-        this.fixed(R.ColliderDesc.cuboid(1.75 * IN, 72.1 * IN / 2, 0.75 * IN).setTranslation(s * x, 72.1 * IN / 2, s * (zc + dz)), 'steel');
+        this.fixed(R.ColliderDesc.cuboid(1.75 * IN, 72.1 * IN / 2, 0.75 * IN).setTranslation(s * x, 72.1 * IN / 2, -s * zc + dz), 'steel');
       }
       for (const h of [27, 45, 63]) {
         this.fixed(R.ColliderDesc.cylinder(rungHalf, 1.66 * IN / 2).setRotation({ x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 })
-          .setTranslation(s * x, h * IN, s * zc), 'steel');
+          .setTranslation(s * x, h * IN, -s * zc), 'steel');
       }
     }
   }
