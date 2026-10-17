@@ -11,6 +11,7 @@ let stepper: Stepper | null = null;
 const send = (frame: Frame) => {
   const f = frame.fuel;
   const buffers = [f.st, f.pos, f.prev, f.rot, f.prevRot, f.squashT, f.squashA, f.squashN, f.vel, f.dragF, f.liftF].map((a) => a.buffer);
+  buffers.push(frame.net.local.buffer, frame.net.prev.buffer, frame.panels.buffer);
   if (frame.debug) buffers.push(frame.debug.vertices.buffer, frame.debug.colors.buffer, frame.debug.contacts.buffer);
   (self as unknown as Worker).postMessage({ frame }, buffers as ArrayBuffer[]);
 };

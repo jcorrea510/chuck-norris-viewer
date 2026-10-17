@@ -31,6 +31,9 @@ export interface Frame {
   robot: RobotFrame;
   fuel: FuelFrame;
   netHits: NetHit[];
+  /** the hopper's cargo net (knots, robot frame, now and one step ago) and the polycarbonate panels' bend amplitudes (q₁, q₂ per panel, m) */
+  net: { local: Float32Array; prev: Float32Array };
+  panels: Float32Array;
   /** impacts since the last frame: [speed, x, y, z] … */
   impacts: number[];
   respawned: boolean;

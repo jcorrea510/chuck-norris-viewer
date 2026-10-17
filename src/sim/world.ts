@@ -10,7 +10,7 @@ import { FieldGrid, type GridData, type HubData } from './field';
 import { Engine, type CollisionIndex } from './phys/engine';
 import { Fuel, BS } from './phys/fuel';
 import { Hubs, HUB } from './phys/hub';
-import { Robot, couplerOffset } from './phys/robot';
+import { Robot } from './phys/robot';
 import { Net } from './phys/net';
 import { Panels } from './phys/panels';
 import { Rng } from './phys/rng';
@@ -117,7 +117,7 @@ export class SimWorld {
     this.hubs = new Hubs(this.engine, this.fuel, this.rng);
     this.hubs.onScore = (i, h) => this.hubScored(i, h);
     this.robot = new Robot(this.engine, this.fuel, this.rng, (x, z) => this.field.floor(x, z));
-    this.net = new Net(this.robot, couplerOffset);
+    this.net = new Net(this.robot);
     this.panels = new Panels(this.robot);
     this.robot.onShot = () => { this.shotTimes.push(this.clock); if (this.mode === 'highscore' && this.hsPhase === 'play') this.hsShots++; };
     this.planner = planner ?? new InlinePlanner(this.field);

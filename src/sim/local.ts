@@ -24,6 +24,8 @@ export function frameOf(w: SimWorld, alpha: number, steps: number, physMs: numbe
       squashT: c(f.squashT), squashA: c(f.squashA), squashN: c(f.squashN), vel: c(f.vel), dragF: c(f.dragF), liftF: c(f.liftF),
     },
     netHits: w.hubs.netHits.map((h) => ({ ...h })),
+    net: { local: c(w.net.local), prev: c(w.net.prevLocal) },
+    panels: c(w.panels.q),
     debug: debug ? (() => {
       const d = w.engine.world.debugRender();
       // the robot's contact points (field and FUEL), as the solver sees them

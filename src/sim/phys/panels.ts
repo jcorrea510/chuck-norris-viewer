@@ -19,7 +19,8 @@
 //   robot     the panels ride the frame: the frame's velocity change normal to a panel (a wall hit,
 //             being hit) is a half-sine acceleration pulse (bumper foam and frame: 4 ms).
 import { FUEL, STEP } from './config';
-import { couplerOffset, type Robot } from './robot';
+import { couplerOffset } from './fourbar';
+import type { Robot } from './robot';
 import { BS, speedFactor, type Fuel } from './fuel';
 
 const R = FUEL.radius;

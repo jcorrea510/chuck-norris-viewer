@@ -16,6 +16,7 @@
 // The net runs before the engine step (the ball's path is swept through the cloth, so nothing
 // tunnels), with the robot pose at the start of the step extrapolated by its velocity.
 import { FUEL, STEP } from './config';
+import { couplerOffset } from './fourbar';
 
 /** what the net needs of the robot and the FUEL (keeps this file free of Rapier: the CAD viewer drapes the same net) */
 export interface NetRobot {
@@ -128,7 +129,7 @@ export class Net {
   /** contacts last step (for tests/debug) */
   contacts = 0;
 
-  constructor(private robot: NetRobot, private coupler: CouplerFn) {
+  constructor(private robot: NetRobot, private coupler: CouplerFn = couplerOffset) {
     const T = netTopology();
     this.index = T.index; this.ab = T.ab; this.n = T.n; this.pinned = T.pinned;
     this.cords = T.cords; this.links = T.links; this.tris = T.tris;
