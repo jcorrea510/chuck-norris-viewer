@@ -9,7 +9,7 @@ import { buildStandIn } from './standin';
 import { studioScene } from './studio';
 import { PartIndex, type PartsFile } from './parts';
 import { subsystemById, robot as robotConfig } from './config';
-import { buildWiring } from './wiring';
+import { buildWiring, restyleBrainPan } from './wiring';
 
 CameraControls.install({
   THREE: {
@@ -105,6 +105,10 @@ export class Viewer {
   readonly root = new THREE.Group();
   readonly stage = new THREE.Group();
   readonly keyLight = new THREE.DirectionalLight(0xfff6ec, 2.0);
+  /** Shop-light fill from below, faded in only while the camera looks at the underside (the brain pan's
+   * wiring sits in the shadow of the whole robot; the reference photos are taken in room light). */
+  private readonly underFill = new THREE.DirectionalLight(0xfffaf2, 0);
+  private readonly camDir = new THREE.Vector3();
   source: 'model' | 'standin' = 'model';
   parts: PartIndex | null = null;
   state: PartState = new PartState(0);
@@ -182,6 +186,9 @@ export class Viewer {
     kl.shadow.radius = 3;
     kl.target.position.set(0, 0.25, 0);
     this.scene.add(kl, kl.target);
+    this.underFill.position.set(-0.4, -2.5, 0.6);
+    this.underFill.target.position.set(0, 0.2, 0);
+    this.scene.add(this.underFill, this.underFill.target);
 
     this.stage.add(this.root);
     this.scene.add(this.grid, this.stage);
@@ -264,6 +271,7 @@ export class Viewer {
     let electrical: THREE.Object3D | null = null;
     model.traverse((o) => { if (!electrical && !(o as THREE.Mesh).isMesh && o.userData.subsystem === 'electrical' && !o.userData.mechanism) electrical = o; });
     if (!electrical) return;
+    restyleBrainPan(model, this.parts!);
     const w = buildWiring(this.parts);
     for (const [geo, finish, name] of [[w.insulation, 'plastic', 'wiring'], [w.sleeving, 'fabric', 'wiringsleeve']] as const) {
       const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
@@ -1041,6 +1049,9 @@ export class Viewer {
   private render() {
     this.dirty = false;
     const r = this.renderer;
+    // under-fill: 0 at or above the horizon, full when looking straight up from below (CAD view only)
+    const up = this.simActive ? 0 : this.camera.getWorldDirection(this.camDir).y;
+    this.underFill.intensity = up > 0.15 ? 0.55 * Math.min(1, (up - 0.15) / 0.5) : 0;
     if (this.shadowDirty && this.subs.size) {
       this.stage.updateMatrixWorld(true);
       if (!this.simActive) this.shadow.update(r, this.scene, this.stage);
