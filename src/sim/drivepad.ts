@@ -1,7 +1,8 @@
 // On-screen driving controls for iPad and phones: a floating stick appears under the left thumb
-// and drives (field-relative), a drag area under the right thumb turns the robot, and two large
-// buttons sit beside it: Intake (tap: on / off) and Shoot (hold). Every touch is captured, so
-// driving and shooting work together and nothing ever scrolls or zooms the page.
+// and drives (field-relative), a drag area under the right thumb turns the robot, and buttons sit
+// beside it: Intake (tap: latches it on, like holding the controller's left trigger; tap again:
+// the rollers stop and the intake stays down), Up (stows the intake) and Shoot (hold). Every touch
+// is captured, so driving and shooting work together and nothing ever scrolls or zooms the page.
 import { icon } from '../icons';
 import type { TouchState } from './input';
 
@@ -18,7 +19,8 @@ export class Drivepad {
       <div class="dp-zone dp-move" aria-label="Drive: touch and drag"><div class="dp-base"><div class="dp-knob"></div></div><span class="dp-tag">Drive</span></div>
       <div class="dp-zone dp-turn" aria-label="Turn: drag left or right"><div class="dp-base dp-wide"><div class="dp-knob"></div></div><span class="dp-tag">Turn</span></div>
       <div class="dp-buttons">
-        <button class="dp-btn dp-intake" aria-pressed="false" aria-label="Intake on or off">${icon('arrow-big-down')}<span>Intake</span></button>
+        <button class="dp-btn dp-up" aria-label="Intake up">${icon('arrow-big-up')}<span>Up</span></button>
+        <button class="dp-btn dp-intake" aria-pressed="false" aria-label="Intake: tap to run the rollers, tap again to stop">${icon('arrow-big-down')}<span>Intake</span></button>
         <button class="dp-btn dp-shoot" aria-label="Shoot (hold)">${icon('crosshair')}<span>Shoot</span></button>
       </div>`;
     parent.append(this.el);
@@ -29,8 +31,11 @@ export class Drivepad {
     const set = (on: boolean) => { this.state.shoot = on; shoot.classList.toggle('on', on); };
     shoot.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); try { shoot.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ } set(true); if (navigator.vibrate) navigator.vibrate(6); });
     for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) shoot.addEventListener(t, () => set(false));
-    this.intakeBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.state.intakeTap = true; if (navigator.vibrate) navigator.vibrate(6); });
-    for (const b of [shoot, this.intakeBtn]) b.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.intakeBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.state.intake = !this.state.intake; if (navigator.vibrate) navigator.vibrate(6); });
+    const up = this.el.querySelector<HTMLButtonElement>('.dp-up')!;
+    up.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.state.retractTap = true; up.classList.add('on'); if (navigator.vibrate) navigator.vibrate(6); });
+    for (const t of ['pointerup', 'pointercancel']) up.addEventListener(t, () => up.classList.remove('on'));
+    for (const b of [shoot, up, this.intakeBtn]) b.addEventListener('contextmenu', (e) => e.preventDefault());
     // no page gestures from anywhere on the pad
     this.el.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
   }
@@ -44,8 +49,8 @@ export class Drivepad {
       const m = Math.hypot(dx, dy);
       if (m > RADIUS) { dx *= RADIUS / m; dy *= RADIUS / m; }
       knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      // the robot code applies the deadband; here a gentle curve for fine control near the middle
-      const k = (v: number) => { const a = Math.min(1, Math.abs(v) / RADIUS); return Math.sign(v) * a * (0.4 + 0.6 * a); };
+      // raw, like a real stick: the robot code applies the deadband and squaring
+      const k = (v: number) => Math.max(-1, Math.min(1, v / RADIUS));
       fn(k(dx), -k(dy));
     };
     zone.addEventListener('pointerdown', (e) => {
@@ -73,8 +78,8 @@ export class Drivepad {
     zone.addEventListener('lostpointercapture', end);
   }
 
-  setVisible(on: boolean) { this.el.classList.toggle('on', on); if (!on) Object.assign(this.state, { mx: 0, my: 0, turn: 0, shoot: false }); }
-  /** The Intake button shows whether the rollers are running. */
+  setVisible(on: boolean) { this.el.classList.toggle('on', on); if (!on) Object.assign(this.state, { mx: 0, my: 0, turn: 0, shoot: false, intake: false, retractTap: false }); }
+  /** The Intake button shows whether it is latched on. */
   setIntake(on: boolean) {
     if (this.intakeBtn.getAttribute('aria-pressed') === String(on)) return;
     this.intakeBtn.setAttribute('aria-pressed', String(on));

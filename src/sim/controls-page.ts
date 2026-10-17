@@ -2,7 +2,7 @@
 // press the new key or button (Esc clears it). Also: what "forward" means, the on-screen controls,
 // and a reset. Saved on this device.
 import { icon } from '../icons';
-import { ACTIONS, DEFAULT_BINDINGS, keyName, padName, type Action, type DriverControls } from './input';
+import { ACTIONS, DEFAULT_BINDINGS, PAD_MENU, keyLabels, padName, type Action, type DriverControls } from './input';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -13,14 +13,15 @@ export interface ControlsPageOpts {
 }
 
 export function controlsPage(root: HTMLElement, c: DriverControls, opts: ControlsPageOpts) {
+  const fixedPad = (a: Action) => a === 'reverseIntake' ? `${padName(PAD_MENU)} + ${padName(c.bindings.pad.unjam)}` : a === 'turnLeft' || a === 'turnRight' ? 'Right stick' : 'Left stick';
   const render = () => {
     const b = c.bindings;
     const row = (a: (typeof ACTIONS)[number]) => {
       const keys = b.keys[a.id];
       return `<div class="kb-row" data-a="${a.id}">
         <div class="kb-label"><b>${esc(a.label)}</b>${a.hint ? `<span>${esc(a.hint)}</span>` : ''}</div>
-        <button class="kb-key" data-kind="key" data-a="${a.id}" aria-label="Key for ${esc(a.label)}">${keys.map((k) => `<kbd>${esc(keyName(k))}</kbd>`).join('<i>or</i>') || '<em>none</em>'}</button>
-        ${a.pad ? `<button class="kb-key pad" data-kind="pad" data-a="${a.id}" aria-label="Controller button for ${esc(a.label)}"><kbd>${esc(padName(b.pad[a.id]))}</kbd></button>` : `<span class="kb-key pad fixed"><kbd>${a.id === 'turnLeft' || a.id === 'turnRight' ? 'Right stick' : 'Left stick'}</kbd></span>`}
+        <button class="kb-key" data-kind="key" data-a="${a.id}" aria-label="Key for ${esc(a.label)}">${keyLabels(keys).map((k) => `<kbd>${esc(k)}</kbd>`).join('<i>or</i>') || '<em>none</em>'}</button>
+        ${a.pad ? `<button class="kb-key pad" data-kind="pad" data-a="${a.id}" aria-label="Controller button for ${esc(a.label)}"><kbd>${esc(padName(b.pad[a.id]))}</kbd></button>` : `<span class="kb-key pad fixed"><kbd>${esc(fixedPad(a.id))}</kbd></span>`}
       </div>`;
     };
     root.innerHTML = `
@@ -31,7 +32,7 @@ export function controlsPage(root: HTMLElement, c: DriverControls, opts: Control
       <p class="tip">Tap a key or button, then press the new one. Esc clears it.</p>
       <h3>Touch</h3>
       <label class="row"><span>On-screen driving controls</span><input type="checkbox" class="switch" data-k="touch" ${opts.touch ? 'checked' : ''}></label>
-      <p class="tip">Left thumb drives (the stick appears where it lands), right thumb turns. Intake turns the rollers on and off (on drops the intake; off stows it, and a stowed robot is too tall for the TRENCH). Hold Shoot to feed the turrets.</p>
+      <p class="tip">Left thumb drives (the stick appears where it lands), right thumb turns. Intake latches on like holding the left trigger: it deploys the intake and runs the two big rollers; tap it again and the rollers stop but the intake stays down. Up stows the intake (a stowed robot is too tall for the TRENCH). Hold Shoot to feed the turrets.</p>
       <div class="sheet-actions"><button class="act" data-act="reset">${icon('rotate-ccw')}<span>Reset Controls</span></button></div>`;
     wire();
   };
