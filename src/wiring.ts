@@ -12,8 +12,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 const col = (hex: number) => new THREE.Color(hex);
 const C = {
-  red: col(0xd8321c), black: col(0x17171a), yellow: col(0xe6bd1c), green: col(0x2f8f40), white: col(0xe4e4e0),
-  blue: col(0x2a5fc4), orange: col(0xff7d16), body: col(0xc8ccce), tie: col(0x0e0e10), grey: col(0x55585c),
+  red: col(0xd8301e), black: col(0x17171a), yellow: col(0xe8c21a), green: col(0x2e8b3a), white: col(0xe4e4e0),
+  blue: col(0x2a5fc4), orange: col(0xf07a1e), body: col(0xc8ccce), tie: col(0x0e0e10), grey: col(0x55585c),
 };
 
 /** Parallel-transport frames along a dense polyline (n = normal, b = binormal), so twisted / paired wires never flip. */
@@ -152,13 +152,29 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   const ins = new Soup(pdh), slv = new Soup(pdh);
 
   /** One wire: stubs leave the terminals straight (strain relief) and the middle is a smooth curve through `via`. */
+  const smooth = (a: number, b: number, x: number) => { const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  let slackN = 0;
+  /** Loose slack: the run sags off the plate by up to ~2 cm and wanders sideways, except where it threads a wall or the hinge rail. */
+  const slack = (s: THREE.Vector3[], amp = 0.006 + 0.012 * ((slackN++ * 0.618) % 1)) => {
+    const u = [0];
+    for (let i = 1; i < s.length; i++) u.push(u[i - 1] + s[i].distanceTo(s[i - 1]));
+    const len = u[u.length - 1];
+    if (len < 0.08) return s;
+    const ph = slackN * 1.7;
+    return s.map((p, i) => {
+      const t = u[i] / len;
+      const w = Math.sin(Math.PI * t) * smooth(0.017, 0.03, Math.abs(Math.abs(p.x) - 0.051)) * smooth(0.01, 0.03, Math.abs(p.z + 0.0075));
+      return new THREE.Vector3(p.x + 0.003 * Math.sin(t * 9 + ph) * w, Math.max(0.058, p.y - amp * w), p.z + 0.003 * Math.cos(t * 7 + ph) * w);
+    });
+  };
+
   const wire = (from: P3, via: P3[], to: P3, color: THREE.Color, r: number, stubFrom?: P3, stubTo?: P3) => {
     const pts: P3[] = [from];
     if (stubFrom) pts.push([from[0] + stubFrom[0], from[1] + stubFrom[1], from[2] + stubFrom[2]]);
     pts.push(...via);
     if (stubTo) pts.push([to[0] + stubTo[0], to[1] + stubTo[1], to[2] + stubTo[2]]);
     pts.push(to);
-    ins.sweep(path(pts, r > 0.0016 ? 0.01 : 0.008), r, color, r > 0.0016 ? 6 : 5);
+    ins.sweep(slack(path(pts, r > 0.0016 ? 0.008 : 0.008)), r, color, r > 0.0016 ? 6 : 5);
   };
 
   /** Red/black pair side by side (flat to the plate unless `ref` says otherwise). */
@@ -172,10 +188,10 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   };
 
   /** Twisted CAN pair: yellow / green, about 22 mm lay. */
-  const can = (pts: P3[], ref: THREE.Vector3 = UP, lay = 0.022) => {
-    const s = path(pts, 0.004);
+  const can = (pts: P3[], ref: THREE.Vector3 = UP, lay = 0.012) => {
+    const s = path(pts, 0.002);
     const f = frames(s, ref);
-    const r = 0.0011;
+    const r = 0.0009;
     let acc = 0;
     const off: THREE.Vector3[] = [];
     for (let i = 0; i < s.length; i++) {
@@ -187,15 +203,22 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
     ins.sweep(s.map((p, i) => p.clone().sub(off[i])), r, C.green, 4);
   };
 
+  /** Spare-wire coil: `turns` loops of radius r, rising slightly each turn. */
+  const coil = (c: P3, r: number, turns: number): P3[] => {
+    const out: P3[] = [];
+    for (let a = 0; a <= turns * Math.PI * 2 + 1e-6; a += Math.PI / 3) out.push([c[0] + r * Math.cos(a), c[1] + 0.003 * (a / (Math.PI * 2)), c[2] + r * Math.sin(a)]);
+    return out;
+  };
+
   /** WAGO 221 lever splice lying on the plate: `dir` is along the conductors. */
   const wago = (c: P3, dir: THREE.Vector3, n: number, down = -1) => {
     const L = 0.0063 * n + 0.003, W = 0.0125, H = 0.008;
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir.clone().normalize());
     const ctr = V(c);
-    ins.box(ctr, [L, H, W], q, C.body);
+    ins.box(ctr, [L, H, W], q, C.orange);
     for (let i = 0; i < n; i++) {
       const off = new THREE.Vector3((i - (n - 1) / 2) * 0.0063, down * (H / 2 + 0.0022), 0).applyQuaternion(q);
-      ins.box(ctr.clone().add(off), [0.0052, 0.0044, W * 0.82], q, C.orange);
+      ins.box(ctr.clone().add(off), [0.0052, 0.0044, W * 0.82], q, C.white);
     }
   };
 
@@ -259,7 +282,7 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   const RAIL = -0.0075; // z of the 26" hinge rail the wires pass through (grommets)
   const kt = (x: number, z: number, away: number) => ({ red: [x - 0.0045, 0.062, z] as P3, blk: [x + 0.0045, 0.062, z] as P3, stub: [0, 0.002, away] as P3 });
   const SR: P3 = [-0.006, 0, 0], SB: P3 = [0.006, 0, 0];
-  const R12 = 0.0021; // 12 AWG silicone leads
+  const R12 = 0.0024; // 12 AWG silicone leads
 
   // Kraken power-lead terminals (the face toward the pan centre)
   const D3 = kt(0.198, -0.362, 0.012), S3 = kt(0.298, -0.263, 0.012); // rear +x module: drive, steer
@@ -316,9 +339,9 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   can([[-0.235, 0.0835, -0.29], [-0.25, 0.08, -0.262], [-0.3, 0.075, -0.25], [-0.315, 0.062, -0.25], [-0.315, 0.062, -0.263]]);
   can([[-0.235, 0.0835, -0.29], [-0.235, 0.083, -0.31], [-0.235, 0.078, -0.335], [-0.22, 0.07, -0.35], [-0.215, 0.062, -0.35], [-0.215, 0.062, -0.362]]);
   // CANivore -> Pigeon (under the roboRIO's rear edge, through both walls)
-  can([[-0.268, 0.083, -0.141], [-0.268, 0.083, -0.153], [-0.255, T, -0.178], [-0.2, T, -0.187], [-0.1, T, -0.187], [-0.05, T, -0.185], [-0.03, T, -0.17], [-0.012, 0.086, -0.15], [-0.008, 0.089, -0.134]]);
+  can([[-0.268, 0.083, -0.141], [-0.268, 0.083, -0.153], [-0.255, T, -0.178], [-0.2, T, -0.187], [-0.1, T, -0.187], [-0.05, T, -0.185], [-0.03, T, -0.17], ...coil([0, 0.074, -0.205], 0.022, 2), [-0.012, 0.086, -0.15], [-0.008, 0.089, -0.134]]);
   // Pigeon -> +x modules
-  can([[0.008, 0.089, -0.134], [0.008, 0.089, -0.148], [0.045, T, -0.172], [0.1, 0.0835, -0.175]]);
+  can([[0.008, 0.089, -0.134], [0.008, 0.089, -0.148], [0.045, T, -0.172], ...coil([0.105, 0.075, -0.12], 0.019, 2), [0.1, 0.0835, -0.175]]);
   can([[0.1, 0.0835, -0.175], [0.1, T, -0.2], [0.105, T, -0.26], [0.15, T, -0.285], [0.2, T, -0.287], [0.245, 0.0835, -0.29]]);
   can([[0.245, 0.0835, -0.29], [0.245, 0.083, -0.3], [0.235, 0.078, -0.33], [0.215, 0.07, -0.348], [0.21, 0.062, -0.348], [0.21, 0.062, -0.362]]);
   can([[0.245, 0.0835, -0.29], [0.245, 0.083, -0.28], [0.255, T, -0.268], [0.3, T, -0.255], [0.315, 0.062, -0.255], [0.315, 0.062, -0.263]]);
@@ -327,8 +350,8 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   can([[0.2, 0.0835, 0.03], [0.23, 0.083, 0.03], [0.29, 0.078, 0.03], [0.315, 0.07, 0.03], [0.315, 0.062, 0.033], [0.315, 0.062, 0.045]]);
 
   // ---- MPM outputs (18 AWG pairs) to the roboRIO and CANivore
-  pair([[-0.125, 0.079, -0.239], [-0.125, 0.079, -0.231], [-0.09, T, -0.222], [-0.071, T, -0.19], [-0.071, T, -0.06], [-0.075, T, -0.04], [-0.092, 0.0755, -0.033]], 0.0011);
-  pair([[-0.17, 0.079, -0.239], [-0.17, 0.079, -0.231], [-0.2, T, -0.217], [-0.226, T, -0.19], [-0.226, T, -0.1], [-0.262, T, -0.078], [-0.278, 0.083, -0.072], [-0.278, 0.083, -0.084]], 0.0011);
+  pair([[-0.125, 0.079, -0.239], [-0.125, 0.079, -0.231], [-0.09, T, -0.222], [-0.071, T, -0.19], [-0.071, T, -0.06], [-0.075, T, -0.04], [-0.092, 0.0755, -0.033]], 0.0013);
+  pair([[-0.17, 0.079, -0.239], [-0.17, 0.079, -0.231], [-0.2, T, -0.217], [-0.226, T, -0.19], [-0.226, T, -0.1], [-0.262, T, -0.078], [-0.278, 0.083, -0.072], [-0.278, 0.083, -0.084]], 0.0013);
 
   // ---- WAGO 221 splices on the CAN daisy chain and the 18 AWG feeds
   const X = new THREE.Vector3(1, 0, 0), Zv = new THREE.Vector3(0, 0, 1);
@@ -338,7 +361,7 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
 
   // ---- grommets where the bundles pass through the walls and the hinge rail
   for (const x of [0.0645, 0.0375, -0.0375, -0.0645]) grommet([x, 0.0835, -0.208], [1, 0, 0], 0.0105);
-  for (const x of [0.0645, 0.0375, -0.0375, -0.0645]) grommet([x, T, -0.187], [1, 0, 0], 0.0045);
+  for (const x of [0.0645, 0.0375, -0.0375, -0.0645]) grommet([x, T, -0.187], [1, 0, 0], 0.006);
   for (const [x, R] of [[0.1435, 0.0105], [0.2885, 0.0085], [-0.2335, 0.0095], [-0.265, 0.0055]] as const) for (const z of [-0.0207, 0.0057]) grommet([x, 0.0825, z], [0, 0, 1], R);
 
   // ---- zip ties on the main bundles
@@ -365,7 +388,7 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   }
 
   // ---- battery -> 120 A breaker -> PDH (6 AWG)
-  const R6 = 0.0033;
+  const R6 = 0.0037;
   wire([0.131, 0.09, 0.0425], [[0.16, 0.088, 0.0425], [0.25, 0.088, 0.04], [0.3, 0.088, 0.03]], [0.3, 0.1, 0.0], C.red, R6);
   wire([0.3, 0.1, 0.0], [[0.3, 0.12, -0.05], [0.31, 0.14, -0.12]], [0.332, 0.15, -0.158], C.red, R6, undefined, [0, 0, 0.012]);
   wire([0.332, 0.14, -0.206], [[0.31, 0.12, -0.215]], [0.3, 0.1, -0.222], C.red, R6, [0, 0, -0.01]);
@@ -373,6 +396,50 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   wire([0.131, 0.09, 0.0305], [[0.16, 0.086, 0.0305], [0.25, 0.086, 0.018], [0.2985, 0.086, 0.0], [0.2985, 0.086, -0.15], [0.2985, 0.084, -0.22], [0.27, 0.07, -0.222]], [0.245, 0.07, -0.215], C.black, R6);
   grommet([0.3, 0.0945, 0.0], [0, 1, 0], 0.008); grommet([0.3, 0.0945, -0.222], [0, 1, 0], 0.008);
   wago([0.215, 0.083, -0.268], X, 2); wago([0.26, 0.083, -0.268], X, 2);
+
+  // ---- every other motor controller: PDH pairs ending at the plate holes / a front exit (grommets); the moving motors are not wired
+  const Ax = (i: number): P3 => [0.1595, 0.074, PDH_Z(i) + 0.0074], Bx = (i: number): P3 => [0.2725, 0.074, PDH_Z(i) + 0.0074];
+  const CX: P3 = [0, 0.088, -0.3], FX: P3 = [0.2, 0.088, 0.19];
+  for (let j = 0; j < 2; j++) { // flywheels, +x pair of motors
+    const i = 2 + j, z = Ax(i)[2], lx = 0.1285 - 0.003 * j;
+    wire(Ax(i), [[lx, L(j), z], [lx, L(j + 1), -0.2], [0.122, L(j), -0.31], [0.113 - 0.003 * j, L(j), -0.386]], HP, C.red, R12, SR);
+    wire(Bx(i), [[0.2925 + 0.003 * j, L(j + 1), z], [0.2925 + 0.003 * j, L(j + 1), -0.2575 - 0.004 * j], [0.2, L(j + 1), -0.2625], [0.135, L(j), -0.285], [0.126, L(j), -0.34], [0.108 + 0.003 * j, L(j), -0.39]], HP, C.black, R12, SB);
+  }
+  for (let j = 0; j < 2; j++) { // flywheels, -x pair of motors, through the corridor
+    const i = 4 + j, k = 10 + j, z = Ax(i)[2], lx = 0.1295 - 0.003 * j;
+    wire(Ax(i), [[lx, L(k), z], [lx, L(k), wc(k)], ...west(k), [-0.078, L(k), wc(k)], [-0.088, L(k), -0.3], [-0.1, L(k), -0.385]], HN, C.red, R12, SR);
+    wire(Bx(i), [[0.2955 + 0.003 * j, L(k), z], [0.2955 + 0.003 * j, L(k), -0.2535 - 0.004 * j], [0.24, L(k), -0.2535 - 0.004 * j], [0.16, L(k), -0.2535 - 0.004 * j], ...west(k), [-0.072, L(k), wc(k)], [-0.085, L(k), -0.3], [-0.104, L(k), -0.39]], HN, C.black, R12, SB);
+  }
+  for (let j = 0; j < 2; j++) { // indexer motors, into the centre channel
+    const i = j, z = Ax(i)[2], k = 12 + j;
+    wire(Ax(i), [[0.1275, L(k), z], [0.1275, L(k), -0.3 + 0.006 * j], [0.064, L(k), -0.3 + 0.006 * j], [0.038, L(k), -0.3 + 0.006 * j], [0.012, L(k), -0.3 + 0.006 * j]], [CX[0], CX[1], CX[2] + 0.006 * j], C.red, R12, SR);
+    wire(Bx(i), [[0.2975, L(k), z], [0.2975, L(k), -0.2565 + 0.002 * j], [0.2, L(k), -0.2585 + 0.002 * j], [0.13, L(k), -0.2745], [0.1, L(k), -0.3 + 0.006 * j], [0.064, L(k), -0.3 + 0.006 * j], [0.012, L(k), -0.3 + 0.006 * j]], [CX[0] - 0.006, CX[1], CX[2] + 0.006 * j], C.black, R12, SB);
+  }
+  for (let j = 0; j < 3; j++) { // intake pivot, intake roller, hotdog: up the lanes and through the rail
+    const i = 6 + j, z = Ax(i)[2], rx = 0.1345 + 0.0035 * (j % 2), bx = 0.3015 + 0.003 * j;
+    wire(Ax(i), [[rx, L(j), z], [rx, L(j), -0.05], [rx, L(j), RAIL], [rx, L(j), 0.1], [0.16 + 0.01 * j, L(j + 1), 0.16]], [FX[0] - 0.006 + 0.006 * j, FX[1], FX[2]], C.red, R12, SR);
+    wire(Bx(i), [[bx, L(j + 1), z], [bx, L(j + 1), RAIL], [bx, L(j + 1), 0.015], [0.26, L(j + 1), 0.04], [0.22, L(j + 1), 0.12], [0.205 + 0.006 * j, L(j + 1), 0.17]], [FX[0] + 0.004 + 0.004 * j, FX[1], FX[2]], C.black, R12, SB);
+  }
+  grommet([FX[0], 0.0945, FX[2]], [0, 1, 0], 0.012); grommet([CX[0], 0.0945, CX[2] + 0.003], [0, 1, 0], 0.012);
+
+  // ---- doubled MPM outputs (14 AWG pairs) toward the rear exit
+  pair([[-0.152, 0.079, -0.239], [-0.152, 0.079, -0.23], [-0.1, 0.07, -0.221], [-0.085, 0.066, -0.25], [-0.09, 0.066, -0.33], [-0.105, 0.072, -0.39]], 0.0019);
+  pair([[-0.135, 0.079, -0.239], [-0.135, 0.079, -0.229], [-0.095, 0.064, -0.224], [-0.08, 0.062, -0.26], [-0.083, 0.062, -0.33], [-0.1, 0.07, -0.392]], 0.0019);
+
+  // ---- roboRIO cables: ethernet arcs off the plate to the rear exit, USB loops to a plug, three short signal leads
+  const ETH: P3 = [-0.165, 0.0775, -0.033];
+  wire(ETH, [[-0.165, 0.0775, -0.014], [-0.13, 0.062, -0.011], [-0.088, 0.066, -0.03], [-0.082, 0.066, -0.1], [-0.084, 0.066, -0.2], [-0.09, 0.066, -0.3]], [-0.1, 0.075, -0.39], C.black, 0.0027);
+  wire([-0.185, 0.0775, -0.033], [[-0.185, 0.0775, -0.018], [-0.215, 0.064, -0.012], [-0.2, 0.061, -0.04], [-0.16, 0.063, -0.05]], [-0.15, 0.078, -0.06], C.black, 0.002);
+  ins.box(V([-0.14, 0.085, -0.062]), [0.012, 0.009, 0.019], new THREE.Quaternion(), C.black);
+  for (const [x, ex, ez] of [[-0.21, -0.255, -0.215], [-0.195, -0.28, -0.2], [-0.2, -0.234, -0.25]] as const) {
+    wire([x, 0.0765, -0.033], [[x, 0.0765, -0.017], [x - 0.02, 0.066, -0.02], [ex, 0.066, ez + 0.02]], [ex, 0.075, ez], C.black, 0.0009);
+  }
+
+  // ---- long loops of spare CAN in the centre channel and beside the PDH
+  can([[-0.262, T, -0.05], ...coil([-0.248, 0.075, -0.075], 0.012, 1.5), [-0.262, T, -0.02]]);
+
+  // ---- the PDH's lever ports are orange
+  for (let i = 0; i < 10; i++) for (const x of [0.158, 0.2742]) ins.box(V([x, 0.0735, PDH_Z(i) + 0.0005]), [0.0035, 0.026, 0.0108], new THREE.Quaternion(), C.orange);
 
   const insGeo = ins.geometry();
   const slvGeo = slv.geometry();
