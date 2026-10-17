@@ -9,7 +9,7 @@ import { buildStandIn } from './standin';
 import { studioScene } from './studio';
 import { PartIndex, type PartsFile } from './parts';
 import { subsystemById, robot as robotConfig } from './config';
-import { buildWiring } from './wiring';
+import { buildWiring, restyleBrainPan } from './wiring';
 
 CameraControls.install({
   THREE: {
@@ -264,6 +264,7 @@ export class Viewer {
     let electrical: THREE.Object3D | null = null;
     model.traverse((o) => { if (!electrical && !(o as THREE.Mesh).isMesh && o.userData.subsystem === 'electrical' && !o.userData.mechanism) electrical = o; });
     if (!electrical) return;
+    restyleBrainPan(model, this.parts!);
     const w = buildWiring(this.parts);
     for (const [geo, finish, name] of [[w.insulation, 'plastic', 'wiring'], [w.sleeving, 'fabric', 'wiringsleeve']] as const) {
       const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());

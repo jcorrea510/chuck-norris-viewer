@@ -50,10 +50,10 @@ class Soup {
   private pid: number[] = [];
   private idx: number[] = [];
   tris = 0;
-  constructor(private partId: number) {}
+  constructor(private partId: number, private gain = 1) {}
 
   private vert(p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) {
-    this.pos.push(p.x, p.y, p.z); this.nrm.push(n.x, n.y, n.z); this.colr.push(c.r, c.g, c.b); this.pid.push(this.partId);
+    this.pos.push(p.x, p.y, p.z); this.nrm.push(n.x, n.y, n.z); this.colr.push(c.r * this.gain + 0.02, c.g * this.gain + 0.02, c.b * this.gain + 0.02); this.pid.push(this.partId);
     return this.pos.length / 3 - 1;
   }
 
@@ -149,7 +149,7 @@ export interface WiringGeometry { insulation: THREE.BufferGeometry; sleeving: TH
 
 export function buildWiring(parts: PartIndex | null): WiringGeometry {
   const pdh = parts?.partsMatching(['Simplified PDH'])[0] ?? 0;
-  const ins = new Soup(pdh), slv = new Soup(pdh);
+  const ins = new Soup(pdh, 1.3), slv = new Soup(pdh);
 
   /** One wire: stubs leave the terminals straight (strain relief) and the middle is a smooth curve through `via`. */
   const smooth = (a: number, b: number, x: number) => { const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -444,4 +444,28 @@ export function buildWiring(parts: PartIndex | null): WiringGeometry {
   const insGeo = ins.geometry();
   const slvGeo = slv.geometry();
   return { insulation: insGeo, sleeving: slvGeo, triangles: ins.tris + slv.tris };
+}
+
+/**
+ * The CAD colors the brain pan's electronics plate near-black and its door smoked; the real ones are bare
+ * satin aluminum and clear polycarbonate. Recolors those parts' vertices (the part's finish stays as modeled).
+ */
+export function restyleBrainPan(model: THREE.Object3D, parts: PartIndex) {
+  const plate = new Set<number>(), door = new Set<number>();
+  for (let pid = 1; pid <= parts.count; pid++) {
+    const n = parts.name(parts.nodeOfPart(pid));
+    if (n === 'Brain Pan') plate.add(pid); else if (n === 'Brain Pan Polycarb') door.add(pid);
+  }
+  model.traverse((o) => {
+    const m = o as THREE.Mesh;
+    const g = m.isMesh ? m.geometry : null;
+    const id = g?.getAttribute('_partid') as THREE.BufferAttribute | undefined, c = g?.getAttribute('color') as THREE.BufferAttribute | undefined;
+    if (!id || !c) return;
+    for (let i = 0; i < id.count; i++) {
+      const pid = id.getX(i);
+      if (plate.has(pid)) c.setXYZ(i, 0.62, 0.64, 0.66);
+      else if (door.has(pid)) c.setXYZ(i, 0.78, 0.84, 0.9);
+    }
+    c.needsUpdate = true;
+  });
 }
