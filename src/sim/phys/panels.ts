@@ -129,6 +129,7 @@ export class Panels {
     for (let i = 0; i < fuel.n; i++) {
       const s = fuel.st[i];
       if (s !== BS.FREE && s !== BS.FLYING) continue;
+      if (fuel.launchT[i] > 0) continue;
       const o = 3 * i;
       const dx = fuel.pos[o] - r.p[0], dz = fuel.pos[o + 2] - r.p[2];
       if (dx * dx + dz * dz > 0.64) continue;
@@ -247,7 +248,6 @@ export class Panels {
     this.lastPeak = peak;
     // the contact is over at t; the deflection so far plays back, one sample per step
     this.pending[k] = { trace, steps: 1, tEnd: t, end: [-side * q[0], -side * qd[0], -side * q[1], -side * qd[1]] };
-    void st;
     return Math.max(0, -vb);
   }
 

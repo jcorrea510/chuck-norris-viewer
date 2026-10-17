@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { netTopology } from './phys/net';
 
-const CORD = 0.0011;           // half width of a cord ribbon (m): 2.2 mm cord
+const CORD = 0.0022;           // half width of a cord ribbon (m): 4.4 mm (a 2 mm cord with its knots reads thin at robot-viewing distances)
 const STRAP = 0.03;            // webbing width (m): 1.2 in
 const COLOR = 0x0c0c0d;
 

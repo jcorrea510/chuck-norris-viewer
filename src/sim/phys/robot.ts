@@ -282,10 +282,11 @@ export class Robot {
     this.updateMechanismColliders();
   }
 
-  /** Preload: balls dropped into the hopper, settled. */
+  /** Preload: balls dropped into the hopper, settled. Packed 4 × 4 per layer, every other layer offset half a ball (the cargo net closes the top at ~0.5 m, so a tall tower would just sit on it). */
   preload(indices: number[]) {
     indices.forEach((i, k) => {
-      const lx = -0.2 + (k % 4) * 0.135, lz = 0.06 + (Math.floor(k / 4) % 2) * 0.15, ly = 0.3 + Math.floor(k / 8) * 0.15;
+      const layer = Math.floor(k / 16), n = k % 16, off = layer % 2 ? 0.07 : 0;
+      const lx = -0.225 + (n % 4) * 0.15, lz = 0.0 + Math.floor(n / 4) * 0.14 + off, ly = 0.3 + layer * 0.125;
       this.fuel.place(i, this.toWorld(lx, ly, lz));
     });
   }

@@ -29,7 +29,8 @@ interface Body {
   isSleeping(): boolean; linvel(): { x: number; y: number; z: number }; angvel(): { x: number; y: number; z: number };
   applyImpulse(f: { x: number; y: number; z: number }, wake: boolean): void; applyTorqueImpulse(t: { x: number; y: number; z: number }, wake: boolean): void;
 }
-export interface NetFuel { n: number; st: Uint8Array; pos: Float32Array; mass: Float32Array; bodies: Body[] }
+/** launchT: a ball just fired by the shooter ignores the robot for 0.08 s (it leaves over the hopper), the net included */
+export interface NetFuel { n: number; st: Uint8Array; pos: Float32Array; mass: Float32Array; launchT: Float32Array; bodies: Body[] }
 /** BS.FREE and BS.FLYING (phys/fuel.ts): the states a ball can be in the cloth */
 const FREE = 0, FLYING = 1;
 /** the coupler's displacement (z, y) at a four-bar angle (deg): robot.ts couplerOffset */
@@ -223,6 +224,7 @@ export class Net {
     for (let i = 0; i < fuel.n; i++) {
       const s = fuel.st[i];
       if (s !== FREE && s !== FLYING) continue;
+      if (fuel.launchT[i] > 0) continue;
       const o = i * 3, px = fuel.pos[o], py = fuel.pos[o + 1], pz = fuel.pos[o + 2];
       if (px < x0 - m || px > x1 + m || py < y0 - m || py > y1 + m || pz < z0 - m || pz > z1 + m) continue;
       if (captured.length && captured.some((c) => c.i === i)) continue;
