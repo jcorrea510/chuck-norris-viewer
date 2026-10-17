@@ -363,19 +363,22 @@ async function simTests() {
   for (let k = 0; k < ALL.length + 1; k++) {
     views.push(await page.evaluate(() => window.__viewer.state.sim.view));
     await tapEl(page, '.sim-tr [data-act=camera]');
-    const path = await page.evaluate(() => {
-      const sim = window.__viewer.state.sim, out = [];
-      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); out.push(sim.cameraRig().toArray()); }
-      return out;
+    let path = await page.evaluate(() => {
+      const sim = window.__viewer.state.sim, out = [], rob = [];
+      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); out.push(sim.cameraRig().toArray()); rob.push([sim.robot.x, sim.robot.z]); }
+      return { out, rob };
     });
-    let maxStep = 0;
+    const rob = path.rob; path = path.out;
+    let maxStep = 0, robStep = 0;
+    for (let i = 1; i < rob.length; i++) robStep = Math.max(robStep, Math.hypot(rob[i][0] - rob[i - 1][0], rob[i][1] - rob[i - 1][1]));
     for (let i = 1; i < path.length; i++) maxStep = Math.max(maxStep, Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1], path[i][2] - path[i - 1][2]));
     const settle = Math.hypot(...path[89].map((v, j) => v - path[88][j]));
     let total = 0;
     for (let i = 1; i < path.length; i++) total += Math.hypot(...path[i].map((v, j) => v - path[i - 1][j]));
     // no jump: no single frame covers more than 6 % of the move, and it comes to rest
     const fixedView = ['driver', 'follow', 'overhead'].includes(await page.evaluate(() => window.__viewer.state.sim.view));
-    check(maxStep <= Math.max(0.05, total * 0.06) && (settle < 0.02 || !fixedView), `camera switch ${k + 1}: smooth blend (${total.toFixed(1)} m in ${(path.length / 60).toFixed(1)} s, largest frame ${(maxStep / Math.max(total, 1e-6) * 100).toFixed(1)} %, settled)`);
+    // the robot-mounted cameras move with the robot (a mount lever adds a little when it spins), so their per-frame step is bounded by the robot's
+    check(maxStep <= (fixedView ? Math.max(0.05, total * 0.06) : Math.max(0.05, total * 0.06, robStep * 1.5 + 0.03)) && (settle < 0.02 || !fixedView), `camera switch ${k + 1}: smooth blend (${total.toFixed(1)} m in ${(path.length / 60).toFixed(1)} s, largest frame ${(maxStep / Math.max(total, 1e-6) * 100).toFixed(1)} %, settled)`);
   }
   check(JSON.stringify(views.slice(0, ALL.length).sort()) === JSON.stringify([...ALL].sort()) && views[ALL.length] === views[0], `camera button cycles through every view once (${views.join(' → ')})`);
   for (const v of ALL) {

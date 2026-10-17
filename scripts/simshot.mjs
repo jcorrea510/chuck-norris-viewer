@@ -15,7 +15,7 @@ const page = await browser.newPage({ viewport: (process.argv.find((a) => a.start
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
-if (!shots.includes('settings')) await page.addInitScript(() => { const s = document.createElement('style'); s.textContent = '#ui{display:none!important}'; document.addEventListener('DOMContentLoaded', () => document.head.append(s)); });
+if (!shots.includes('settings') && !process.argv.includes('--blend')) await page.addInitScript(() => { const s = document.createElement('style'); s.textContent = '#ui{display:none!important}'; document.addEventListener('DOMContentLoaded', () => document.head.append(s)); });
 await page.goto(`http://127.0.0.1:${port}/?physics=main`);
 await page.waitForFunction(() => window.__viewer?.state.ready, null, { timeout: 180000 });
 const cad = process.argv.includes('--cad');
@@ -91,6 +91,22 @@ for (const s of shots) {
       return hits.slice(0, 3).map((h) => { const a = h.object.geometry.getAttribute('_partid'); return { pid: a && h.face ? a.getX(h.face.a) : -1, d: +h.distance.toFixed(3) }; });
     }, [x, y])));
   }
+}
+if (process.argv.includes('--blend')) {
+  // like verify.mjs: tap the camera button, let the real (slow) rAF frames run, then step 90 frames and look at the camera's per-frame motion
+  const res = [];
+  await page.evaluate(() => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView('follow'); });
+  for (let k = 0; k < 4; k++) {
+    await page.click('.sim-tr [data-act=camera]');
+    res.push(await page.evaluate(() => {
+      const sim = window.__viewer.state.sim, path = [];
+      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); path.push(sim.cameraRig().toArray()); }
+      const steps = path.slice(1).map((p, i) => Math.hypot(...p.map((x, j) => x - path[i][j])));
+      const big = steps.map((d, i) => [d, i]).sort((a, b) => b[0] - a[0]).slice(0, 3).map(([d, i]) => [+d.toFixed(3), i, path[i].map((x) => +x.toFixed(2)), path[i + 1].map((x) => +x.toFixed(2))]);
+      return { view: sim.view, big };
+    }));
+  }
+  console.log('blend', JSON.stringify(res));
 }
 if (process.argv.includes('--jitter')) {
   // camera smoothness while the robot drives: per-frame camera motion vs robot motion, and the camera's pose in the robot frame
