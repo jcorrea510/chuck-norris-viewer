@@ -56,3 +56,8 @@ NEXT on resume:
 - main deployed at 10:23 (run 38915279646) with the tested build; live site smoke-tested in Firefox (sim loads, worker physics, scores, no console errors). Docs/clips deployed at 11:41 (run 38925993698).
 - Physics clips in overnight/media/*.jpg (scripts/media.mjs).
 - Open items (BACKLOG "Later"): match-style Hub timing, climbing, a real-iPad test, replacing EDIT values with team measurements.
+
+## Round 3 (Oct 16–17)
+- Six branches merged into `overnight`: collision (towers mirrored, HUB posts, planner grid), team-code port (Rebuilt26 at 50 Hz, Talon-level motors), controls/scoreboard/Move removal, brain-pan wiring (three passes plus the lead's underside fill light), soft bodies (XPBD net, modal panels), and sim visuals (hood/servo/flywheel, the motor-thing fix, four new POVs, render perf).
+- Lead fixes: the realism leak check needs persistence (one-step landing dips are contact transients); the long tests yield every 10 s (a vitest worker RPC timeout); the net stress test used the removed `toggleArm` field, now `retract`; and BUMP beaching is documented.
+- Usage limits hit three times. An hourly cron job resumed the work after each reset.

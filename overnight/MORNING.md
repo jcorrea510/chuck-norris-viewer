@@ -1,5 +1,29 @@
 # Morning report: Chuck Norris simulator
 
+## Round 3 (Sat Oct 17): "make it literally our robot with our code"
+
+| Your feedback | Status |
+|---|---|
+| Stuck behind the HUBs / by the TOWER | **Fixed, tested.** The TOWER colliders were mirrored to the wrong side of each tower, so the robot drove through the drawn uprights and hit invisible ones. Two invisible floor-to-ceiling posts stood beside each HUB where the field only has struts from the HUB top. The AI's planning grid is fixed too. `tests/phys/collision.test.ts` checks both HUBs, both towers, slides along every face, and full-speed hits. One remaining behavior: crawling slowly over a BUMP beaches the robot on its belly at the peak (CAD belly 3.5–4.8 cm, peak 16.5 cm), and full stick drives over. If the real robot crawls over fine, tell me its belly clearance. |
+| Use our GitHub code: swerve, turret PIDs, wrap limits, shot tables, everything | **Done.** `src/sim/phys/teamcode.ts` is a 50 Hz port of Rebuilt26 (`insert-name-here`): drive shaping (deadband, squaring), kinematics, discretize and desaturate, the face-HUB ProfiledPID, GetAdjustedShot lookahead, the 17-row shot table, `selectSafeSetpointDegrees` wrap logic with your limits, the ferry targets, and every DefaultModeBindings button. Under it, each Talon is simulated with your gains, current limits and motor curves. Top speed is 3.7–4.0 m/s (the battery sags below the 12.7 V your kV needs for 4.58). |
+| Score on top | **Done.** Top-center scoreboard in every mode, with the clock in High Score. |
+| LT deploys then rollers only while held; RB stows; RT runs hotdog + indexer into spinning turrets; flywheels always on; ferry higher | **Done, exactly as your bindings.** B unjams, Start+B reverses the intake, A faces the HUB, Y resets heading, D-pad down locks the turrets backward. Ferry uses your code's targets and shot table. |
+| Keyboard: arrows rotate, Shift intake, K/Space shoot, Tab camera | **Done** (fresh defaults for everyone; all rebindable on the Controls page). |
+| Soft body: polycarb bending, net on the hopper | **Done, tested.** The cargo net is a cloth sim: a 5 cm diamond mesh pinned to the hopper tops that stretches when the intake deploys. Balls rest in it, bounce softly off it, and get caught when thrown up from inside. The hopper walls, intake front and side plates bend when hit and ring down (a 10 m/s ball flexes a wall ~4 mm). The net also shows in the CAD view. |
+| Intake comes up when hit | **Done.** The intake arm is a real joint: hits push it up, and your Motion Magic pivot drives it back down. |
+| Hoods from the Servo Hub values | **Done.** Hood angle follows your servo pulse mapping (500–2500 µs ↔ 13–29.85°, left channel inverted). The hood plates, servo gear and flywheels animate from the sim. |
+| Optimize sim | **Partly.** The CAD's 850k-triangle "ghost" copies are no longer drawn in the sim, FUEL only draws balls on the field with lighter spheres, and per-frame garbage is gone. Physics itself (Rapier) was left alone to keep behavior identical. |
+| Weird motor thing on the left | **Fixed.** It was a chrome block blown up by a quantization mismatch in the sim's low-detail model. Before and after shots are in the visuals report. |
+| Remove Move button | **Done.** |
+| Wiring, especially under the brain pan | **Done.** A procedural harness built from your photos: PDH leads to every motor, twisted CAN chains roboRIO → CANivore → Pigeon → modules, orange WAGOs, zip ties, grommets, the 6 AWG battery → breaker → PDH run, plus sleeved risers to the turrets. The plate is bare aluminum and the door is clear, and a fill light comes on only when you look up at the underside. |
+| More camera POVs | **Added:** Robot (driver cam on the intake end), Turret (over the left turret along its aim), Broadcast (TV sideline), Chase low, plus Driver, Follow and Overhead. Tab or the View button cycles them. |
+
+**Estimates to confirm (marked EDIT in DECISIONS.md):** turret motor gear 20:1 (your code only gives the CANcoder's 10:1), turret inertia, polycarb support spacing (sets how much panels flex), belly clearance. A 1.5 m HUB shot hits the HUB front in the sim; 2–5.2 m shots score 63/64.
+
+---
+
+# Round 2
+
 *Updated Fri Oct 16, ~11:10. Status at the bottom: **everything below is live on the site.***
 
 ## 1. What changed (your list)

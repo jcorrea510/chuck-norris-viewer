@@ -370,7 +370,9 @@ describe('determinism and invariants', () => {
     // a ball landing from a lob sinks up to one step's travel (~5 cm at 6–7 m/s) into the carpet for a
     // single 120 Hz step before the contact pushes it out: only a ball still under the floor 0.1 s later leaked
     const low = new Uint8Array(w.fuel.n);
-    run(w, 60, NO_INPUT, (t) => {
+    // in 10 s chunks with a yield between: a synchronous block over a minute trips vitest's worker RPC timeout
+    for (let j = 0; j < 6; j++, await new Promise((r) => setTimeout(r, 0))) run(w, 10, NO_INPUT, (t0) => {
+      const t = t0 + 10 * j;
       if (w.hubs.scoredBy[0] < last) bad ||= `score dropped at ${t}`;
       last = w.hubs.scoredBy[0];
       const r = w.robot;

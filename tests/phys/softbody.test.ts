@@ -124,8 +124,10 @@ describe('cargo net', () => {
     net.preStep = (f) => { const t = performance.now(); pre(f); const d = performance.now() - t; ms += d; steps++; worstMs = Math.max(worstMs, d); };
     let vmax = 0, box = 0, contacts = 0, finite = true;
     for (let k = 0; k < 60 * 120; k++) {
+      // yield every 10 simulated seconds: a synchronous block over a minute trips vitest's worker RPC timeout
+      if (k % 1200 === 0) await new Promise((r) => setTimeout(r, 0));
       const t = k / 120;
-      const inp = input({ mx: Math.sin(t * 0.9), mz: Math.cos(t * 1.3), turn: Math.sin(t * 0.7) > 0 ? 1 : -1, shoot: t % 12 > 4, intake: t % 9 < 6, toggleArm: k % 600 === 0 });
+      const inp = input({ mx: Math.sin(t * 0.9), mz: Math.cos(t * 1.3), turn: Math.sin(t * 0.7) > 0 ? 1 : -1, shoot: t % 12 > 4, intake: t % 9 < 6, retract: k % 600 === 0 });
       w.step(inp);
       contacts += net.contacts;
       for (let n = 0; n < net.n; n++) {
