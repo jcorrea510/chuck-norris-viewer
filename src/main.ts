@@ -10,6 +10,7 @@ import { sound } from './sound';
 import { ACCENTS, defaults, loadSettings, saveSettings, isLight, type Settings } from './settings';
 import type { Simulation, SimMode } from './sim/index';
 import { keyLabels, type Action } from './sim/input';
+import { SIM_VIEWS } from './sim/views';
 import { icon } from './icons';
 
 // ------------------------------------------------------------------ iPad Safari guards
@@ -458,7 +459,7 @@ function openSimSettings() {
       <span class="row-label">Bumper Color in CAD View</span>
       ${seg('bumper', [['red', 'Red'], ['blue', 'Blue']])}
       <span class="row-label">Camera</span>
-      ${seg('simView', [['driver', 'Driver'], ['follow', 'Follow'], ['overhead', 'Overhead']])}
+      ${seg('simView', SIM_VIEWS.map((x): [string, string] => [x.id, x.label]))}
       <label class="row"><span>Robot Sound</span><input type="checkbox" class="switch" data-key="simSound" ${settings.simSound ? 'checked' : ''}></label>
       <div class="sheet-actions">
         <button class="act" data-act="reset-field">${icon('rotate-ccw')}<span>Reset Field</span></button>

@@ -20,7 +20,7 @@ const SIM_ONLY = process.argv.includes('--sim-only');
 const OUT = `shots/${BROWSER}`;
 fs.mkdirSync(OUT, { recursive: true });
 
-const PORT = 4173 + ['chromium', 'firefox', 'webkit'].indexOf(BROWSER);
+const PORT = Number(process.env.VERIFY_PORT) || 4173 + ['chromium', 'firefox', 'webkit'].indexOf(BROWSER);
 const server = await preview({ preview: { port: PORT, strictPort: true, host: '127.0.0.1' }, logLevel: 'warn' });
 const URL = `http://127.0.0.1:${PORT}/`;
 const browser = BROWSER === 'firefox' ? await firefox.launch() : BROWSER === 'webkit' ? await webkit.launch()

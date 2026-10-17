@@ -1,4 +1,5 @@
 // Per-device preferences (kept in this browser only).
+import { isSimView, type SimView } from './sim/views';
 export type Appearance = 'system' | 'dark' | 'light';
 export type Accent = 'maroon' | 'blue' | 'graphite' | 'gold';
 
@@ -18,7 +19,7 @@ export interface Settings {
   bumper: 'red' | 'blue';
   /** which alliance we play as in the simulation */
   alliance: 'red' | 'blue';
-  simView: 'driver' | 'follow' | 'overhead';
+  simView: SimView;
   /** robot sounds in the simulation (physically driven; off by default) */
   simSound: boolean;
 }
@@ -47,7 +48,7 @@ export function loadSettings(d: Settings): Settings {
     if (raw) {
       const s = { ...d, ...JSON.parse(raw) } as Settings;
       // views from older versions
-      if (!['driver', 'follow', 'overhead'].includes(s.simView)) s.simView = 'driver';
+      if (!isSimView(s.simView)) s.simView = 'driver';
       return s;
     }
   } catch { /* storage unavailable: defaults */ }
