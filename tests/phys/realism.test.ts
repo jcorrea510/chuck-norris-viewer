@@ -367,6 +367,9 @@ describe('determinism and invariants', () => {
   test('60 s of the robot playing itself: no NaN, no FUEL out of the field, score only goes up', async () => {
     const w = await makeWorld(3);
     let last = 0, bad = '';
+    // a ball landing from a lob sinks up to one step's travel (~5 cm at 6–7 m/s) into the carpet for a
+    // single 120 Hz step before the contact pushes it out: only a ball still under the floor 0.1 s later leaked
+    const low = new Uint8Array(w.fuel.n);
     run(w, 60, NO_INPUT, (t) => {
       if (w.hubs.scoredBy[0] < last) bad ||= `score dropped at ${t}`;
       last = w.hubs.scoredBy[0];
@@ -376,7 +379,9 @@ describe('determinism and invariants', () => {
         if (!w.fuel.isFree(i)) continue;
         const x = w.fuel.pos[i * 3], y = w.fuel.pos[i * 3 + 1], z = w.fuel.pos[i * 3 + 2];
         if (!Number.isFinite(x + y + z)) bad ||= `ball ${i} NaN`;
-        if (Math.abs(x) > 8.35 || Math.abs(z) > 4.1 || y < FUEL.radius - 0.03) bad ||= `ball ${i} out at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}) t=${t.toFixed(2)}`;
+        const under = y < FUEL.radius - 0.03;
+        if (Math.abs(x) > 8.35 || Math.abs(z) > 4.1 || (under && low[i])) bad ||= `ball ${i} out at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}) t=${t.toFixed(2)}`;
+        low[i] = under ? 1 : 0;
       }
     });
     log(`60 s: scored ${w.hubs.scoredBy[0]}, shots ${w.robot.shotsFired}${bad ? ' — ' + bad : ''}`);
