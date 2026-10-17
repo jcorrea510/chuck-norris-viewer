@@ -22,15 +22,14 @@ import { Drivepad } from './drivepad';
 import { SimAudio } from './audio';
 import { DebugOverlay } from './debug';
 import { SoftbodyRender } from './softbody-render';   // soft bodies: the hopper's cargo net and the bending polycarbonate (all drawn there)
+import { SIM_VIEWS, type SimView } from './views';
+import { PovRig, type PovId } from './povs';
+import { wrapDeg, hoodMechDeg, gearMechDeg, FLY_VIS_DIV } from './hood';
 
 export type { SimMode, SimStatus } from './world';
-export type SimView = 'driver' | 'follow' | 'overhead';
+export type { SimView } from './views';
 export type Alliance = 'red' | 'blue';
-export const SIM_VIEWS: { id: SimView; label: string; title: string }[] = [
-  { id: 'driver', label: 'Driver', title: 'From our driver station' },
-  { id: 'follow', label: 'Follow', title: 'Behind the robot, facing the opponent' },
-  { id: 'overhead', label: 'Overhead', title: 'The whole field from above' },
-];
+export { SIM_VIEWS };
 
 const DEG = Math.PI / 180;
 
@@ -88,6 +87,17 @@ export class Simulation {
   private camFov = new Spring1();
   private flip = new THREE.Matrix4();
   private audio = new SimAudio();
+  /** visual flywheel angles (rad), one per turret */
+  private flyAng: number[] = [];
+  /** the interpolated pose being drawn (internal field frame, before the alliance flip) */
+  private pose = { x: 0, z: 0, yaw: 0 };
+  private rig = new PovRig();
+  /** camera as last drawn (internal frame), and the blend from the previous camera after a view change */
+  private final = { p: new THREE.Vector3(), t: new THREE.Vector3(), fov: 50, ok: false };
+  private cur = { p: new THREE.Vector3(), t: new THREE.Vector3() };
+  private from = { p: new THREE.Vector3(), t: new THREE.Vector3(), fov: 50 };
+  private blend = 1;
+  private drawnView: SimView | null = null;
   private debug: DebugOverlay | null = null;
   private lastRaw: RawInput | null = null;
   private frameMs = 0;
@@ -129,7 +139,7 @@ export class Simulation {
       fetch('field/field-collision.json').then((r) => r.json() as Promise<CollisionIndex>),
     ]);
     this.lod = new Map();
-    lodGltf?.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) this.lod!.set(m.name, m.geometry); });
+    if (lodGltf) this.lod = this.rebaseLod(lodGltf.scene, v.root);
     this.prepareField(gltf.scene);
     this.group.add(gltf.scene);
 
@@ -162,6 +172,8 @@ export class Simulation {
     };
     v.setSimRendering(this.lod, 50);
     v.setFocus(null);
+    // the hologram copies the CAD viewer fades out would draw the full-detail robot (about 850k triangles) until they finish
+    v.root.traverse((o) => { if (o.userData.ghost) o.visible = false; });
     v.setExploded(false);
     for (const m of v.mechanisms.values()) v.setMechanism(m.id, m.def, false);
     v.simActive = true;
@@ -203,16 +215,53 @@ export class Simulation {
     this.setMode(mode);
   }
 
+  /**
+   * The low-detail robot's geometry, expressed in the full-detail meshes' own space. Both files are
+   * meshopt-quantized against each mesh's bounds, and the de-quantizing scale and offset live on the
+   * mesh node; the LOD has no hardware, so its bounds (and node transform) differ. Swapping the bare
+   * geometry under the full-detail node blew parts up (a 2×6×7 cm bracket drew as a 4×10×12 cm chrome
+   * block on the left side). Here each vertex goes through the LOD node, then the inverse full-detail node.
+   */
+  private rebaseLod(lodScene: THREE.Object3D, root: THREE.Object3D) {
+    const full = new Map<string, THREE.Mesh>();
+    root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && !m.userData.ghost && !full.has(m.name)) full.set(m.name, m); });
+    const out = new Map<string, THREE.BufferGeometry>();
+    const p = new THREE.Vector3(), nm = new THREE.Matrix3();
+    lodScene.traverse((o) => {
+      const m = o as THREE.Mesh, h = full.get(o.name);
+      if (!m.isMesh || !h) return;
+      m.updateMatrix(); h.updateMatrix();
+      const T = h.matrix.clone().invert().multiply(m.matrix);
+      const g = m.geometry.clone();
+      const pos = g.getAttribute('position'), nor = g.getAttribute('normal');
+      const P = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) p.fromBufferAttribute(pos, i).applyMatrix4(T).toArray(P, i * 3);
+      g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+      if (nor) {
+        nm.getNormalMatrix(T);
+        const N = new Float32Array(nor.count * 3);
+        for (let i = 0; i < nor.count; i++) p.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize().toArray(N, i * 3);
+        g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+      }
+      g.computeBoundingBox(); g.computeBoundingSphere();
+      out.set(m.name, g);
+    });
+    return out;
+  }
+
   /** Field materials and meshes: transparency that never flickers, alliance colors we can swap. */
   private prepareField(scene: THREE.Object3D) {
     let order = 0;
     const meshes: THREE.Mesh[] = [];
     scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
+    scene.updateMatrixWorld(true);
+    const box = new THREE.Box3();
     meshes.forEach((m) => {
       m.raycast = () => {};
       const mat = m.material as THREE.MeshStandardMaterial;
       m.receiveShadow = !mat.transparent;
-      m.castShadow = !mat.transparent;
+      // flat carpet and floor markings can't shadow anything: out of the (per-frame) shadow pass
+      m.castShadow = !mat.transparent && box.setFromObject(m).max.y > 0.06;
       mat.envMapIntensity = 0.7;
       const c = mat.color;
       // the HUB net is drawn by the simulation (it deforms when fuel hits it)
@@ -249,7 +298,7 @@ export class Simulation {
     const tex = new THREE.CanvasTexture(cv);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
-    const geo = new THREE.SphereGeometry(FUEL.radius, 20, 14);
+    const geo = new THREE.SphereGeometry(FUEL.radius, 16, 10);
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.78, metalness: 0 });
     this.inst = new THREE.InstancedMesh(geo, mat, n);
     this.inst.castShadow = false;
@@ -332,6 +381,7 @@ export class Simulation {
     this.soft?.dispose(); this.soft = null;
     this.audio.stop();
     v.setSimRendering(null, null);
+    v.camera.near = 0.008; v.camera.updateProjectionMatrix();
     v.scene.remove(this.group);
     v.grid.visible = true;
     v.simActive = false;
@@ -364,8 +414,8 @@ export class Simulation {
   }
 
   setView(view: SimView) { this.view = view; }
-  /** where the camera rig is heading (its spring, before camera-controls), for tests */
-  cameraRig() { return this.camPos.v.clone(); }
+  /** where the camera was last drawn (internal field frame, before the alliance flip), for tests */
+  cameraRig() { return this.final.p.clone(); }
   nextView() { const i = SIM_VIEWS.findIndex((x) => x.id === this.view); this.setView(SIM_VIEWS[(i + 1) % SIM_VIEWS.length].id); }
   handBack() { this.backend.resumeAI(); }
   setTouchControls(on: boolean) { this.touchControls = on; }
@@ -398,6 +448,7 @@ export class Simulation {
     this.backend.tick(dt, input, !!this.debug && this.debugN++ % 10 === 0);
     const fr = this.f, r = fr.robot;
     this.pad?.setIntake(this.controls.touch.intake);
+    r.turrets.forEach((t, i) => { this.flyAng[i] = ((this.flyAng[i] ?? 0) + (t.fly / FLY_VIS_DIV) * dt) % (2 * Math.PI); });
     this.present(fr.alpha);
     this.writeFuel(fr.alpha);
     this.soft?.update(fr, fr.alpha);
@@ -431,13 +482,21 @@ export class Simulation {
     const st = v.stage;
     const p = new THREE.Vector3().fromArray(r.prevP).lerp(new THREE.Vector3().fromArray(r.p), alpha);
     const q = new THREE.Quaternion().fromArray(r.prevQ).slerp(new THREE.Quaternion().fromArray(r.q), alpha);
+    this.pose.x = p.x; this.pose.z = p.z;
+    this.pose.yaw = Math.atan2(2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.x * q.x + q.y * q.y));
     if (this.alliance === 'blue') { p.applyMatrix4(this.flip); q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI)); }
     st.position.copy(p);
     st.quaternion.copy(q);
     st.updateMatrix();
     st.matrixWorld.copy(st.matrix);
     v.setMechanismNow('intake', r.intakeAngle);
-    for (const t of r.turrets) v.setMechanismNow(t.id, t.a / DEG);
+    r.turrets.forEach((t, i) => {
+      const side = t.id.slice('turret-'.length);
+      v.setMechanismNow(t.id, wrapDeg(t.a));
+      v.setMechanismNow(`hood-${side}`, hoodMechDeg(t.hoodDeg));
+      v.setMechanismNow(`hoodgear-${side}`, gearMechDeg(t.hoodDeg));
+      v.setMechanismNow(`flywheel-${side}`, wrapDeg(this.flyAng[i] ?? 0));
+    });
     this.moduleMech.forEach((m, i) => {
       let a = r.modules[i].steer - m.h0;
       a = Math.atan2(Math.sin(a), Math.cos(a));
@@ -446,15 +505,20 @@ export class Simulation {
     v.syncPose();
   }
 
+  // scratch for writeFuel (no per-frame allocations)
+  private fm = new THREE.Matrix4(); private fq = new THREE.Quaternion(); private fq1 = new THREE.Quaternion(); private fp = new THREE.Vector3();
+  private fs = new THREE.Vector3(1, 1, 1); private fsq = new THREE.Matrix4(); private frn = new THREE.Matrix4(); private frt = new THREE.Matrix4();
+  private frq = new THREE.Matrix4(); private fn = new THREE.Vector3(); private fup = new THREE.Vector3(0, 1, 0); private fqa = new THREE.Quaternion();
+  private fsh = new THREE.Matrix4();
+
+  /** Draws only the FUEL that is on the field: the instance count is the number of visible balls (those scored into a HUB are skipped, not scaled to nothing). */
   private writeFuel(alpha: number) {
     const f = this.f.fuel;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), q1 = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
-    const hide = new THREE.Matrix4().makeScale(0, 0, 0);
-    const sq = new THREE.Matrix4(), rn = new THREE.Matrix4(), n = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), qa = new THREE.Quaternion();
-    const shm = new THREE.Matrix4();
+    const m = this.fm, q = this.fq, q1 = this.fq1, p = this.fp, s = this.fs, sq = this.fsq, rn = this.frn, n = this.fn, up = this.fup, qa = this.fqa, shm = this.fsh;
+    let ni = 0, ns = 0;
     for (let i = 0; i < f.n; i++) {
       const st = f.st[i], o = i * 3, r4 = i * 4;
-      if (st === BS.HUB) { this.inst.setMatrixAt(i, hide); this.shadows.setMatrixAt(i, hide); continue; }
+      if (st === BS.HUB) continue;
       p.set(f.prev[o] + (f.pos[o] - f.prev[o]) * alpha, f.prev[o + 1] + (f.pos[o + 1] - f.prev[o + 1]) * alpha, f.prev[o + 2] + (f.pos[o + 2] - f.prev[o + 2]) * alpha);
       q.set(f.prevRot[r4], f.prevRot[r4 + 1], f.prevRot[r4 + 2], f.prevRot[r4 + 3]);
       q1.set(f.rot[r4], f.rot[r4 + 1], f.rot[r4 + 2], f.rot[r4 + 3]);
@@ -468,18 +532,21 @@ export class Simulation {
         qa.setFromUnitVectors(up, n.lengthSq() > 0.5 ? n : up);
         rn.makeRotationFromQuaternion(qa);
         sq.makeScale(1 + k * 0.5, 1 - k, 1 + k * 0.5);
-        const pre = new THREE.Matrix4().makeTranslation(p.x, p.y, p.z).multiply(rn).multiply(sq).multiply(rn.clone().transpose()).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q));
-        m.copy(pre);
+        this.frt.makeTranslation(p.x, p.y, p.z).multiply(rn).multiply(sq);
+        this.frq.copy(rn).transpose();
+        this.frt.multiply(this.frq).multiply(this.frq.makeRotationFromQuaternion(q));
+        m.copy(this.frt);
       }
-      this.inst.setMatrixAt(i, m);
+      this.inst.setMatrixAt(ni++, m);
       // contact shadow on the floor below (none for fuel inside the robot or off the field)
       const fh = this.field.floor(p.x, p.z);
       const hgt = p.y - FUEL.radius - fh;
-      if (st === BS.PARKED || st === BS.INDEXER || hgt > 1.5 || Math.abs(p.x) > 8.3 || Math.abs(p.z) > 4.05 || this.onRobot(p)) { this.shadows.setMatrixAt(i, hide); continue; }
+      if (st === BS.PARKED || st === BS.INDEXER || hgt > 1.5 || Math.abs(p.x) > 8.3 || Math.abs(p.z) > 4.05 || this.onRobot(p)) continue;
       const sc = Math.max(0.35, 1 - hgt * 0.5);
       shm.makeScale(sc, 1, sc).setPosition(p.x, fh + 0.003, p.z);
-      this.shadows.setMatrixAt(i, shm);
+      this.shadows.setMatrixAt(ns++, shm);
     }
+    this.inst.count = ni; this.shadows.count = ns;
     this.inst.instanceMatrix.needsUpdate = true;
     this.shadows.instanceMatrix.needsUpdate = true;
   }
@@ -528,7 +595,7 @@ export class Simulation {
     const v = this.viewer, r = this.f.robot, cam = v.camera;
     const aspect = cam.aspect || 1.4;
     const pos = new THREE.Vector3(), tgt = new THREE.Vector3();
-    let fov = 50;
+    let fov = 50, near = 0.008, rigid = false;
     const rx = r.x, rz = r.z;
     if (this.view === 'driver') {
       // our drive team, standing behind the alliance wall: fixed yaw down the field; pans and zooms
@@ -548,7 +615,7 @@ export class Simulation {
       pos.set(cx, Math.max(up + extra, this.clearHeight(cx, cz)), cz);
       tgt.set(rx + 1.6, 0.15, rz);
       fov = aspect < 1 ? 62 : 50;
-    } else {
+    } else if (this.view === 'overhead') {
       // the whole field from above, our alliance at the bottom
       const halfLen = 8.6, halfW = 4.4;
       fov = 40;
@@ -556,13 +623,32 @@ export class Simulation {
       const hNeed = Math.max(halfLen / vt, halfW / (vt * aspect)) * 1.06;
       pos.set(-hNeed * 0.12, hNeed, 0);
       tgt.set(0.35, 0, 0);
+    } else {
+      // robot-mounted and broadcast POVs: rigid or self-smoothed, from the interpolated pose
+      const o = this.rig.solve(this.view as PovId, { ...this.pose, turretAz: this.f.robot.turrets[0]?.aw ?? 0, aspect, field: this.field, clear: (x, z) => this.clearHeight(x, z) }, dt);
+      pos.copy(o.pos); tgt.copy(o.tgt); fov = o.fov; near = o.near; rigid = true;
     }
     const smooth = 0.35;
-    if (dt <= 0) { this.camPos.snap(pos); this.camTgt.snap(tgt); }
-    const p = this.camPos.update(pos, smooth, dt).clone().applyMatrix4(this.flip);
-    const t = this.camTgt.update(tgt, smooth * 0.8, dt).clone().applyMatrix4(this.flip);
-    const f = this.camFov.update(fov, 0.4, dt);
-    if (Math.abs(cam.fov - f) > 0.01) v.setFov(f);
+    if (dt <= 0) { this.camPos.snap(pos); this.camTgt.snap(tgt); this.camFov.update(fov, 0, 0); this.rig.reset(); }
+    // the springs keep following the target in every view, so switching back to one starts from here
+    const sp = this.camPos.update(pos, rigid ? 0.001 : smooth, dt), st = this.camTgt.update(tgt, rigid ? 0.001 : smooth * 0.8, dt);
+    const fp = this.camFov.update(fov, rigid ? 0.001 : 0.4, dt);
+    const cp = this.cur.p.copy(sp), ct = this.cur.t.copy(st);
+    let cf = fp;
+    // a view change eases from the camera as last drawn
+    if (this.drawnView !== this.view) {
+      if (this.final.ok && dt > 0) { this.from.p.copy(this.final.p); this.from.t.copy(this.final.t); this.from.fov = this.final.fov; this.blend = 0; }
+      this.drawnView = this.view;
+    }
+    if (this.blend < 1) {
+      this.blend = Math.min(1, this.blend + dt / 0.6);
+      const k = this.blend * this.blend * (3 - 2 * this.blend);
+      cp.lerpVectors(this.from.p, sp, k); ct.lerpVectors(this.from.t, st, k); cf = this.from.fov + (fp - this.from.fov) * k;
+    }
+    this.final.p.copy(cp); this.final.t.copy(ct); this.final.fov = cf; this.final.ok = true;
+    const p = cp.clone().applyMatrix4(this.flip), t = ct.clone().applyMatrix4(this.flip);
+    if (cam.near !== near) { cam.near = near; cam.updateProjectionMatrix(); }
+    if (Math.abs(cam.fov - cf) > 0.01) v.setFov(cf);
     v.controls.setLookAt(p.x, p.y, p.z, t.x, t.y, t.z, false);
   }
 

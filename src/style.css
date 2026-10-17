@@ -860,3 +860,7 @@ kbd {
 .app.sim .toast { top: calc(var(--safe-t) + 114px); }
 .app.portrait .sim-hs span:not(.icon) { display: none; }
 .app.portrait .sim-hs { width: 44px; padding: 0; justify-content: center; }
+
+/* simulation camera selector: seven views wrap onto two rows */
+.seg[data-key='simView'] { flex-wrap: wrap; }
+.seg[data-key='simView'] button { flex: 1 1 22%; font-size: 14px; padding: 0 4px; white-space: nowrap; }

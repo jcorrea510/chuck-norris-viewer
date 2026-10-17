@@ -531,6 +531,178 @@
       "max": 180,
       "default": 0,
       "unit": "°"
+    },
+    {
+      "id": "hood-left",
+      "name": "Left Hood",
+      "subsystem": "turrets",
+      "parent": "turret-left",
+      "hidden": true,
+      "axis": [
+        -0.582,
+        0,
+        -0.813
+      ],
+      "pivot": [
+        0.272,
+        0.4201,
+        -0.347
+      ],
+      "parts": {
+        "within": "Left Turret Assembly",
+        "match": [
+          "Hood Side Plate",
+          "Shooter Backing",
+          "Side Rail"
+        ]
+      },
+      "min": -20,
+      "max": 30,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "hood-right",
+      "name": "Right Hood",
+      "subsystem": "turrets",
+      "parent": "turret-right",
+      "hidden": true,
+      "axis": [
+        -0.4509,
+        0,
+        0.8926
+      ],
+      "pivot": [
+        -0.2791,
+        0.4201,
+        -0.3348
+      ],
+      "parts": {
+        "within": "Right Turret Assembly",
+        "match": [
+          "Hood Side Plate",
+          "Shooter Backing",
+          "Side Rail"
+        ]
+      },
+      "min": -20,
+      "max": 30,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "hoodgear-left",
+      "name": "Left Hood Servo Gear",
+      "subsystem": "turrets",
+      "parent": "turret-left",
+      "hidden": true,
+      "axis": [
+        -0.582,
+        0,
+        -0.813
+      ],
+      "pivot": [
+        0.156,
+        0.4872,
+        -0.156
+      ],
+      "parts": {
+        "within": "Left Turret Assembly",
+        "match": [
+          "Servo Hex Shaft",
+          "10t Steel Spur Gear"
+        ]
+      },
+      "min": -400,
+      "max": 400,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "hoodgear-right",
+      "name": "Right Hood Servo Gear",
+      "subsystem": "turrets",
+      "parent": "turret-right",
+      "hidden": true,
+      "axis": [
+        -0.4509,
+        0,
+        0.8926
+      ],
+      "pivot": [
+        -0.0561,
+        0.4873,
+        -0.321
+      ],
+      "parts": {
+        "within": "Right Turret Assembly",
+        "match": [
+          "Servo Hex Shaft",
+          "10t Steel Spur Gear"
+        ]
+      },
+      "min": -400,
+      "max": 400,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "flywheel-left",
+      "name": "Left Flywheel",
+      "subsystem": "turrets",
+      "parent": "turret-left",
+      "hidden": true,
+      "axis": [
+        -0.582,
+        0,
+        -0.813
+      ],
+      "pivot": [
+        0.272,
+        0.4201,
+        -0.347
+      ],
+      "parts": {
+        "within": "Left Turret Assembly",
+        "match": [
+          "4\" Brass Flywheel",
+          "4\" Colson Performa Wheel",
+          "1/2\" Hex (8.5 in)"
+        ]
+      },
+      "min": -100000,
+      "max": 100000,
+      "default": 0,
+      "unit": "°"
+    },
+    {
+      "id": "flywheel-right",
+      "name": "Right Flywheel",
+      "subsystem": "turrets",
+      "parent": "turret-right",
+      "hidden": true,
+      "axis": [
+        -0.4509,
+        0,
+        0.8926
+      ],
+      "pivot": [
+        -0.2791,
+        0.4201,
+        -0.3348
+      ],
+      "parts": {
+        "within": "Right Turret Assembly",
+        "match": [
+          "4\" Brass Flywheel",
+          "4\" Colson Performa Wheel",
+          "1/2\" Hex (8.5 in)"
+        ]
+      },
+      "min": -100000,
+      "max": 100000,
+      "default": 0,
+      "unit": "°"
     }
   ]
 }

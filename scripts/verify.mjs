@@ -20,7 +20,7 @@ const SIM_ONLY = process.argv.includes('--sim-only');
 const OUT = `shots/${BROWSER}`;
 fs.mkdirSync(OUT, { recursive: true });
 
-const PORT = 4173 + ['chromium', 'firefox', 'webkit'].indexOf(BROWSER);
+const PORT = Number(process.env.VERIFY_PORT) || 4173 + ['chromium', 'firefox', 'webkit'].indexOf(BROWSER);
 const server = await preview({ preview: { port: PORT, strictPort: true, host: '127.0.0.1' }, logLevel: 'warn' });
 const URL = `http://127.0.0.1:${PORT}/`;
 const browser = BROWSER === 'firefox' ? await firefox.launch() : BROWSER === 'webkit' ? await webkit.launch()
@@ -357,26 +357,37 @@ async function simTests() {
   await page.evaluate(() => { window.__viewer.state.sim.controls.touch.shoot = false; });
   await step(0.5);
 
-  // cameras: exactly three, cycling smoothly (critically damped: no jumps, and it gets there)
+  // cameras: the whole list, cycling smoothly (no jumps; the fixed ones come to rest, the robot-mounted ones follow the robot)
+  const ALL = ['driver', 'follow', 'overhead', 'robot', 'turret', 'broadcast', 'chase'];
   const views = [];
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < ALL.length + 1; k++) {
     views.push(await page.evaluate(() => window.__viewer.state.sim.view));
+    // the blend must be measured from the tap: hold the sim's own frames (the page's real, slow frames would run it out unseen)
+    await page.evaluate(() => { window.__viewer.state.sim.paused = true; });
     await tapEl(page, '.sim-tr [data-act=camera]');
-    const path = await page.evaluate(() => {
-      const sim = window.__viewer.state.sim, out = [];
-      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); out.push(sim.cameraRig().toArray()); }
-      return out;
+    let path = await page.evaluate(() => {
+      const sim = window.__viewer.state.sim, out = [], rob = [];
+      sim.paused = false;
+      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); out.push(sim.cameraRig().toArray()); rob.push([sim.robot.x, sim.robot.z, sim.robot.th]); }
+      return { out, rob };
     });
-    let maxStep = 0;
+    const rob = path.rob; path = path.out;
+    let maxStep = 0, robStep = 0, yawStep = 0;
+    for (let i = 1; i < rob.length; i++) {
+      robStep = Math.max(robStep, Math.hypot(rob[i][0] - rob[i - 1][0], rob[i][1] - rob[i - 1][1]));
+      yawStep = Math.max(yawStep, Math.abs(Math.atan2(Math.sin(rob[i][2] - rob[i - 1][2]), Math.cos(rob[i][2] - rob[i - 1][2]))));
+    }
     for (let i = 1; i < path.length; i++) maxStep = Math.max(maxStep, Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1], path[i][2] - path[i - 1][2]));
     const settle = Math.hypot(...path[89].map((v, j) => v - path[88][j]));
     let total = 0;
     for (let i = 1; i < path.length; i++) total += Math.hypot(...path[i].map((v, j) => v - path[i - 1][j]));
     // no jump: no single frame covers more than 6 % of the move, and it comes to rest
-    check(maxStep <= Math.max(0.05, total * 0.06) && settle < 0.02, `camera switch ${k + 1}: smooth blend (${total.toFixed(1)} m in ${(path.length / 60).toFixed(1)} s, largest frame ${(maxStep / Math.max(total, 1e-6) * 100).toFixed(1)} %, settled)`);
+    const fixedView = ['driver', 'follow', 'overhead'].includes(await page.evaluate(() => window.__viewer.state.sim.view));
+    // the robot-mounted cameras move with the robot (plus the mount's lever arm times the robot's yaw step when it spins), so their per-frame step is bounded by the robot's
+    check(maxStep <= (fixedView ? Math.max(0.05, total * 0.06) : Math.max(0.05, total * 0.06, robStep * 1.5 + yawStep * 2.5 + 0.03)) && (settle < 0.02 || !fixedView), `camera switch ${k + 1}: smooth blend (${total.toFixed(1)} m in ${(path.length / 60).toFixed(1)} s, largest frame ${(maxStep / Math.max(total, 1e-6) * 100).toFixed(1)} %, settled)`);
   }
-  check(JSON.stringify(views.slice(0, 3).sort()) === JSON.stringify(['driver', 'follow', 'overhead']) && views[3] === views[0], `camera button cycles exactly Driver → Follow → Overhead (${views.join(' → ')})`);
-  for (const v of ['driver', 'follow', 'overhead']) {
+  check(JSON.stringify(views.slice(0, ALL.length).sort()) === JSON.stringify([...ALL].sort()) && views[ALL.length] === views[0], `camera button cycles through every view once (${views.join(' → ')})`);
+  for (const v of ALL) {
     await page.evaluate((v) => window.__viewer.state.sim.setView(v), v);
     await step(1.5);
     await shot(page, size, `sim-${v}`);

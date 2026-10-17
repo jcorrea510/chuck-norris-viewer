@@ -53,6 +53,7 @@ const subsystems = CONFIG.subsystems;
 const fallback = subsystems.find((s) => !s.match || s.match.length === 0) ?? subsystems[subsystems.length - 1];
 const excludes = (CONFIG.robot.exclude ?? []).map((s) => s.toLowerCase());
 const mechanisms = CONFIG.mechanisms ?? [];
+const mechanismsChildrenFirst = [...mechanisms.filter((m) => m.parent), ...mechanisms.filter((m) => !m.parent)];
 const isExcluded = (nm) => { const c = clean(nm).toLowerCase(); return excludes.some((e) => c === e || c.startsWith(e + ' <') || c.startsWith(e + ' (')); };
 
 function matchName(name) {
@@ -71,7 +72,8 @@ function subsystemForPath(names) {
 
 /** The mechanism a part belongs to (before deciding which four-bar link it rides on). */
 function mechanismOf(lower, cadBox) {
-  for (const m of mechanisms) {
+  // children (the shooter hood) claim their parts before the parent mechanism (the turret) does
+  for (const m of mechanismsChildrenFirst) {
     const p = m.parts ?? {};
     const wi = p.within ? lower.findIndex((n) => n.includes(p.within.toLowerCase())) : 0;
     if (wi < 0) continue;
@@ -486,7 +488,7 @@ async function main() {
     doc.getRoot().setDefaultScene(outScene);
     const root = doc.createNode('Chuck Norris');
     outScene.addChild(root);
-    const subNodes = new Map(), mechNodes = new Map();
+    const subNodes = new Map(), mechNodes = new Map(), nested = [];
     for (const s of subsystems) subNodes.set(s.id, doc.createNode(`subsystem:${s.id}`).setExtras({ subsystem: s.id, name: s.name }));
     const materials = new Map();
     for (const [key, b] of buckets) {
@@ -518,11 +520,13 @@ async function main() {
         });
         const offsetNode = doc.createNode(`mechanism:${mech}:offset`).setTranslation(pivot.map((v) => -v));
         pivotNode.addChild(offsetNode);
-        subNodes.get(sub).addChild(pivotNode);
+        // a mechanism with a parent (the shooter hood on its turret) rides inside the parent's offset node
+        if (def.parent) nested.push({ pivotNode, parent: `${def.parent}#rotate` }); else subNodes.get(sub).addChild(pivotNode);
         mechNodes.set(mech, offsetNode);
       }
       mechNodes.get(mech).addChild(meshNode);
     }
+    for (const { pivotNode, parent } of nested) mechNodes.get(parent).addChild(pivotNode);
     for (const n of subNodes.values()) if (n.listChildren().length) root.addChild(n);
     root.setExtras({ generator: 'scripts/optimize-model.mjs', source: path.basename(input), units: 'meters', up: '+Y', parts: nParts - 1 });
 
