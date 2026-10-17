@@ -95,15 +95,15 @@ for (const s of shots) {
 if (process.argv.includes('--blend')) {
   // like verify.mjs: tap the camera button, let the real (slow) rAF frames run, then step 90 frames and look at the camera's per-frame motion
   const res = [];
-  await page.evaluate(() => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView('follow'); });
+  await page.evaluate(() => { const sim = window.__viewer.state.sim; sim.paused = false; sim.setView('follow'); const w = sim.world; w.robot.place(0.5, -1.2, Math.PI / 2); w.robot.preload(w.preloadIdx); w.robot.shoot = true; sim.controls.touch.shoot = true; for (let i = 0; i < 90; i++) sim.frame(1 / 60); sim.controls.touch.shoot = false; for (let i = 0; i < 30; i++) sim.frame(1 / 60); });
   for (let k = 0; k < 4; k++) {
     await page.click('.sim-tr [data-act=camera]');
     res.push(await page.evaluate(() => {
-      const sim = window.__viewer.state.sim, path = [];
-      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); path.push(sim.cameraRig().toArray()); }
+      const sim = window.__viewer.state.sim, path = [], rob = [];
+      for (let i = 0; i < 90; i++) { sim.frame(1 / 60); path.push(sim.cameraRig().toArray()); rob.push([+sim.robot.x.toFixed(3), +sim.robot.z.toFixed(3), +sim.robot.th.toFixed(3)]); }
       const steps = path.slice(1).map((p, i) => Math.hypot(...p.map((x, j) => x - path[i][j])));
       const big = steps.map((d, i) => [d, i]).sort((a, b) => b[0] - a[0]).slice(0, 3).map(([d, i]) => [+d.toFixed(3), i, path[i].map((x) => +x.toFixed(2)), path[i + 1].map((x) => +x.toFixed(2))]);
-      return { view: sim.view, big };
+      return { view: sim.view, big, rob: [rob[0], rob[20], rob[89]] };
     }));
   }
   console.log('blend', JSON.stringify(res));
