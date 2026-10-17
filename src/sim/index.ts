@@ -21,6 +21,7 @@ import { DriverControls, type RawInput } from './input';
 import { Drivepad } from './drivepad';
 import { SimAudio } from './audio';
 import { DebugOverlay } from './debug';
+import { SoftbodyRender } from './softbody-render';   // soft bodies: the hopper's cargo net and the bending polycarbonate (all drawn there)
 
 export type { SimMode, SimStatus } from './world';
 export type SimView = 'driver' | 'follow' | 'overhead';
@@ -76,6 +77,7 @@ export class Simulation {
   private shadows!: THREE.InstancedMesh;
   private nets: { mesh: THREE.Mesh; base: Float32Array; hub: number }[] = [];
   private fieldMats: { mat: THREE.MeshStandardMaterial; color: THREE.Color }[] = [];
+  private soft: SoftbodyRender | null = null;   // soft bodies (see softbody-render.ts)
   private hook = (dt: number) => this.frame(dt);
   private saved: Record<string, unknown> | null = null;
   private lod: Map<string, THREE.BufferGeometry> | null = null;
@@ -148,6 +150,7 @@ export class Simulation {
     }
     this.buildFuel();
     this.buildNets();
+    this.soft = new SoftbodyRender(v);   // clones the hopper/intake materials to add the bend
     if (debug) this.debug = new DebugOverlay(this.group);
 
     // take over the stage
@@ -326,6 +329,7 @@ export class Simulation {
     this.controls.detach();
     this.pad?.dispose(); this.pad = null;
     this.debug?.dispose(); this.debug = null;
+    this.soft?.dispose(); this.soft = null;
     this.audio.stop();
     v.setSimRendering(null, null);
     v.scene.remove(this.group);
@@ -396,6 +400,7 @@ export class Simulation {
     this.pad?.setIntake(this.controls.touch.intake);
     this.present(fr.alpha);
     this.writeFuel(fr.alpha);
+    this.soft?.update(fr, fr.alpha);
     this.updateNets();
     this.aimCamera(dt);
     // key light follows the robot so its shadows stay crisp

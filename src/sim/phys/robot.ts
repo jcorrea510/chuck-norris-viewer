@@ -23,6 +23,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { BATTERY, CODE_PERIOD, DRIVE, FIELD_X0, FIELD_Y0, FUEL, G, INDEXER, INTAKE, KRAKEN_X60, ROBOT, SHOOTER, STEP, TURRET } from './config';
 import { IG, groups, GROUP, surfaceMu, surfaceE, type Engine } from './engine';
 import { BS, type Fuel } from './fuel';
+import { PIVOT, JOINT, couplerOffset } from './fourbar';
 import { Azimuth, Flywheel, Hood, Pivot, VelocityMotor } from './mechanisms';
 import { motorCurrent, motorOf, stepMotor } from './motors';
 import type { Rng } from './rng';
@@ -34,13 +35,8 @@ const TAU = Math.PI * 2;
 const R = FUEL.radius;
 
 // ---------------------------------------------------------------- geometry (robot frame: +z front, y up)
-export const PIVOT: [number, number] = [0.2094, 0.2164];               // four-bar crank pivot (z, y)
-const JOINT: [number, number] = [0.4521, 0.2913];
+export { PIVOT, couplerOffset };
 const JOINT_DZ = JOINT[0] - PIVOT[0], JOINT_DY = JOINT[1] - PIVOT[1];
-export function couplerOffset(deg: number): [number, number] {
-  const a = deg * DEG, c = Math.cos(a), s = Math.sin(a);
-  return [PIVOT[0] + JOINT_DY * s + JOINT_DZ * c - JOINT[0], PIVOT[1] + JOINT_DY * c - JOINT_DZ * s - JOINT[1]];
-}
 /** how the four-bar's crank angle (rad) maps onto the motor shaft (rad): the stowed→deployed travel is downPos rotations */
 const DPHI_DTHETA = (-INTAKE.upDeg * DEG) / INTAKE.downPos / TAU;
 export const ROLLER = { z: 0.608, y: 0.1675, r: 0.031, hx: 0.295 };
@@ -286,10 +282,11 @@ export class Robot {
     this.updateMechanismColliders();
   }
 
-  /** Preload: balls dropped into the hopper, settled. */
+  /** Preload: balls dropped into the hopper, settled. Packed 4 × 4 per layer, every other layer offset half a ball (the cargo net closes the top at ~0.5 m, so a tall tower would just sit on it). */
   preload(indices: number[]) {
     indices.forEach((i, k) => {
-      const lx = -0.2 + (k % 4) * 0.135, lz = 0.06 + (Math.floor(k / 4) % 2) * 0.15, ly = 0.3 + Math.floor(k / 8) * 0.15;
+      const layer = Math.floor(k / 16), n = k % 16, off = layer % 2 ? 0.07 : 0;
+      const lx = -0.225 + (n % 4) * 0.15, lz = 0.0 + Math.floor(n / 4) * 0.14 + off, ly = 0.3 + layer * 0.125;
       this.fuel.place(i, this.toWorld(lx, ly, lz));
     });
   }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import CameraControls from 'camera-controls';
+import { CadNet } from './netmodel';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
@@ -116,6 +117,7 @@ export class Viewer {
   onContext: ((lost: boolean) => void) | null = null;
   /** Extra per-frame updaters (simulation); return true while animating. */
   readonly hooks = new Set<(dt: number) => boolean>();
+  private cadNet: CadNet | null = null;
 
   private subs = new Map<string, Sub>();
   readonly mechanisms = new Map<string, Mechanism>();
@@ -417,6 +419,13 @@ export class Viewer {
     });
 
     this.frameOverview({ top: 0, right: 0, bottom: 0, left: 0 }, false, true);
+    // the cargo net over the hopper (netmodel.ts): the simulation's cloth at rest, at the drivetrain center
+    const sw = this.subs.get('swerve'), hop = this.subs.get('hopper');
+    if (sw && hop) {
+      const c = new THREE.Box3().setFromObject(sw.group).getCenter(new THREE.Vector3()), pid = this.parts?.partsMatching(['Hopper Front Panel'])[0];
+      this.root.worldToLocal(c);
+      this.cadNet = new CadNet(hop.group, new THREE.Vector3(c.x, 0, c.z), () => pid === undefined || (this.state.isVisible(pid) && this.state.data[pid * 4 + 2] > 127));
+    }
     this.shadowDirty = true;
     this.dirty = true;
   }
@@ -965,6 +974,7 @@ export class Viewer {
   private advance(dt: number): boolean {
     let active = false;
     for (const h of this.hooks) if (h(dt)) active = true;
+    this.cadNet?.update(this.mechanismValue('intake'), this.simActive, performance.now());
 
     this.spinFactor.target = this.spinning && !this.reducedMotion && (!this.focusPids || this.showcase) && !this.simActive ? 1 : 0;
     if (!this.spinning) this.spinFactor.snap(0);

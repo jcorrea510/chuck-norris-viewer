@@ -11,6 +11,8 @@ import { Engine, type CollisionIndex } from './phys/engine';
 import { Fuel, BS } from './phys/fuel';
 import { Hubs, HUB } from './phys/hub';
 import { Robot } from './phys/robot';
+import { Net } from './phys/net';
+import { Panels } from './phys/panels';
 import { Rng } from './phys/rng';
 import { STEP, FUEL } from './phys/config';
 import { EndlessBrain } from './brain';
@@ -71,6 +73,8 @@ export class SimWorld {
   readonly fuel: Fuel;
   readonly hubs: Hubs;
   readonly robot: Robot;
+  readonly net: Net;
+  readonly panels: Panels;
   readonly rng: Rng;
   planner: Planner;
   brain: EndlessBrain;
@@ -113,6 +117,8 @@ export class SimWorld {
     this.hubs = new Hubs(this.engine, this.fuel, this.rng);
     this.hubs.onScore = (i, h) => this.hubScored(i, h);
     this.robot = new Robot(this.engine, this.fuel, this.rng, (x, z) => this.field.floor(x, z));
+    this.net = new Net(this.robot);
+    this.panels = new Panels(this.robot);
     this.robot.onShot = () => { this.shotTimes.push(this.clock); if (this.mode === 'highscore' && this.hsPhase === 'play') this.hsShots++; };
     this.planner = planner ?? new InlinePlanner(this.field);
     // trench lane: the widest free gap between the side wall and the trench supports
@@ -173,6 +179,8 @@ export class SimWorld {
     r.powerCycle();
     r.autopilot = this.control === 'ai';
     r.preload(this.preloadIdx);
+    this.net.reset();
+    this.panels.clear();
     this.hubs.scoredBy[0] = this.hubs.scoredBy[1] = 0;
     this.hsScore = 0; this.hsShots = 0; this.hsBestRate = 0; this.hsResult = null; this.hsT = 0;
     if (mode === 'highscore') { this.hsPhase = 'countdown'; r.disabled = true; this.onHsPhase?.('countdown'); }
@@ -194,10 +202,14 @@ export class SimWorld {
     this.robot.preStep();
     this.fuel.preStep();
     this.hubs.preStep();
+    this.net.preStep(this.fuel);
+    this.panels.preStep(this.fuel);
     this.engine.step();
     this.fuel.postStep((i) => this.lost(i));
     this.hubs.postStep();
     this.robot.postStep();
+    this.net.postStep();
+    this.panels.postStep(this.fuel);
   }
 
   step(input: DriverInput = NO_INPUT) {
@@ -319,6 +331,8 @@ export class SimWorld {
     const r = this.robot;
     r.place(-6.2, 0.9, Math.PI / 2);
     r.setIntakeNow(true);
+    this.net.reset();
+    this.panels.clear();
     this.brain.resume();
     this.onRespawn?.();
   }

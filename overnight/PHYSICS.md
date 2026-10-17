@@ -107,3 +107,38 @@ The robot runs `src/sim/phys/teamcode.ts` (a port at 50 Hz) over the hardware in
 Estimates (EDIT): X44/X60 rotor inertia, turret inertia 0.05 and motor ratio 20:1, flywheel inertia 0.004, intake mass 4.5 kg and 62.9:1, hood servo travel 0.6 s, indexer belt and floor speeds, exit fit (slip 0.91, elevation 82° − hood). The older sections above predate this port where they list drive gear 6.12, 61 kg, 4.7 m/s, slew limits, the aim tables, the readiness gate, the old turret servo and the old ferry rule: all are replaced by the table above.
 
 Tests: `tests/phys/teamcode.test.ts` (table, wrapping, buttons, ferry, intake, compliance, feed rate) and `realism.test.ts`.
+
+## Soft bodies (`phys/net.ts`, `phys/panels.ts`, `tests/phys/softbody.test.ts`)
+
+### Cargo net over the hopper
+
+A diamond-mesh cord net as an XPBD cloth in the world frame (small steps: Macklin et al., "Detailed rigid body simulation with extended position based dynamics", 2019). World frame, so gravity and the robot's accelerations act on it with no fictitious forces; the pins follow the robot's pose. Runs before the engine step with the robot's pose extrapolated by its velocity, so a ball's path is swept through the cloth (nothing tunnels).
+
+| Value | Number | Source | Conf. | Test |
+|---|---|---|---|---|
+| Lattice | 18 × 18 cells, 181 knots, 324 cords of 5.2 cm (the ~5 cm mesh in the photos); boundary knots = the webbing, pinned | photos, CAD | Med | — |
+| Pins | back edge at the top of the rear panel (z −0.02, y 0.546), side edges straight to the front wall's top (z 0.646, y 0.549 deployed), half width 0.33 m; the front edge rides the four-bar (`fourbar.ts`) | CAD (hopper plates to 0.546 m, coupler to 0.549 m) | High | — |
+| Mass | 0.5 kg over the free knots (3 g each) | spec; **EDIT** weigh the net | Low | — |
+| Rest length | the deployed lattice + 0.33 % slack | designed for the sag below | — | sag |
+| Sag at rest (deployed) | 4.7 cm at the middle (design 4.5 cm ± 1) | photos (a few cm); **EDIT** measure | Med | "rests with the designed sag" |
+| Cords | tension only, k = 6000 N/m per cord; weak knot links two cells apart k = 120 N/m (a pure diamond lattice scissors freely); knot friction 70 s⁻¹ on the relative cord velocity, air 1.2 s⁻¹ | **EDIT** pull-test a panel; damping tuned so a 1 m drop rebounds 14 cm (carpet 24 cm) | Low | drop, pluck |
+| Stowed | the front edge rises 0.18 m and comes back 0.24 m: the cloth hangs in a bag, kept above 0.31 m (hopper floor) and between the side walls | geometry | Med | stress |
+| Solver | 6 substeps × 1 pass at 120 Hz (h = 1.4 ms); 4 substeps sag 1.4 cm more | cost vs stiffness | — | — |
+
+FUEL contact: each ball near the net is a particle carried through the substeps (gravity on it, so a resting ball loads the net); sphere-vs-triangle (Ericson 5.1.5) with barycentric weights on the three knots; sequential impulses with restitution 0.04 above 0.5 m/s, a gentle push-out (≤ 0.6 m/s) and Coulomb friction μ 0.6 with the ball's spin. The knots get −j, the ball's Rapier body +j (and the torque), the robot gets the net's reaction at the ball (the pins carry the load). A sleeping ball the cloth only holds up stays asleep. Balls in the intake's capture path are skipped. Not modeled: the net against robot parts (it is clamped above 0.31 m and between the walls instead), the cloth's own inertial reaction on the robot.
+
+### Polycarbonate panels
+
+Six panels: hopper left/right walls, rear wall, the intake's front wall and its two side plates (the ones balls and walls actually reach). 1/8 in (3.175 mm) polycarbonate, E 2.3 GPa, ρ 1200, ν 0.37, 40 % open hex pattern (mass × 0.6, bending stiffness × 0.45: ω × 0.87; **EDIT**). The frame holds a panel at ~20 cm pitch (bolts and braces behind it; **EDIT**), so its modes are those of a 20 cm clamped bay: ω₁ = 35.99/L² √(D/ρh) = 1065 rad/s (169 Hz), second mode (odd along the panel) at 2.04 ω₁ (clamped square). Shapes φ₁ = sin²πu sin²πv, φ₂ = sin 2πu sin²πu sin²πv. Generalized mass M = ρ_eff h A ⟨φ²⟩ (68 g for a hopper wall) → modal stiffness 77 kN/m; ζ = 0.05 (spec 0.03–0.08).
+
+`q̈ + 2ζω q̇ + ω² q = F φ(u₀,v₀)/M − Γ a_n`, Γ = ⟨φ⟩/⟨φ²⟩ = 1.78, advanced exactly per step (ω dt ≈ 9: an explicit scheme would blow up).
+
+- **FUEL**: a ball striking a panel (relative normal speed > 1.2 m/s going in) is integrated through the contact: the foam's 3.5 kN/m spring with the damping that gives the surface's restitution when the panel is rigid, coupled to the modes. That gives the deflection under the ball (4.0 mm for a 10 m/s ball at the middle of a hopper wall), the ringing it leaves, and the energy the panel took, which comes off the ball's rebound (Rapier's rigid bounce is only ever reduced, never raised: 3.18 vs 3.23 m/s from the panel's edge). The contact lasts ~25 ms and the panel is stiff next to the foam, so the deflection follows the force (it is played back over the 3 steps) and little rings afterwards.
+- **Robot**: the panels ride the frame. The frame's velocity change normal to a panel over a step is a half-sine acceleration pulse of 4 ms (bumper foam and frame; **EDIT**), or a constant acceleration when it is small. A wall hit with the intake out (the front wall leads the bumper) rings the front panel 2.2 mm at 2.8 m/s, more than the 10 m/s ball (1.0 mm there).
+- Not modeled: the panels' effect on the ball other than lost energy; rotational acceleration of the frame; panels hitting each other.
+
+Tests: sag 4.7 cm and still (0.01 mm/s drift); 1 m drop onto the net rebounds 14 cm and rests on it; 4 m/s throw from inside is caught 9 cm above the wall tops and returns; a plucked net only loses energy (3.4 J → 2.7 J, never up); 60 s of hard driving, shooting and intake toggles stays finite and bounded; panel modes 169 Hz / 346 Hz; a 10 m/s ball flexes a hopper wall 4.0 mm; ringing decays at the log decrement 0.316 (theory 0.315) and is 0.5 % after 0.1 s; resting drive does not drift the panels.
+
+### Rendering
+
+The net is one dynamic mesh (`src/sim/net-mesh.ts`: every cord two crossed 4.4 mm ribbons, flat 3 cm webbing along the edges; 2.6 k vertices written per frame), under the robot's stage, interpolated between the worker's last two steps (robot-frame knots are sent as Float32Arrays, transferred like the FUEL arrays). The panels bend in the vertex shader of the robot's hopper and intake meshes (`src/sim/softbody-render.ts`, `onBeforeCompile` on per-mesh clones of the part materials): the two mode shapes times the amplitudes the worker sends, selected by position in the robot frame, so merged meshes need no per-panel geometry. The CAD view shows the same cloth at rest (`src/netmodel.ts`), re-settled when the intake moves.
