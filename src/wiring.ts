@@ -463,8 +463,8 @@ export function restyleBrainPan(model: THREE.Object3D, parts: PartIndex) {
     if (!id || !c) return;
     for (let i = 0; i < id.count; i++) {
       const pid = id.getX(i);
-      if (plate.has(pid)) c.setXYZ(i, 0.62, 0.64, 0.66);
-      else if (door.has(pid)) c.setXYZ(i, 0.78, 0.84, 0.9);
+      if (plate.has(pid)) c.setXYZ(i, 0.5, 0.52, 0.54);
+      else if (door.has(pid)) c.setXYZ(i, 0.3, 0.33, 0.36);
     }
     c.needsUpdate = true;
   });
